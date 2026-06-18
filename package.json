@@ -1,6 +1,6 @@
 {
-  "name": "local-inspect",
-  "version": "1.0.3",
+  "name": "ztools",
+  "version": "1.0.5",
   "description": "Local Webview Inspector",
   "main": "main.js",
   "scripts": {
@@ -11,8 +11,8 @@
     "dist": "vite build && electron-builder"
   },
   "build": {
-    "appId": "com.example.localinspect",
-    "productName": "LocalInspect",
+    "appId": "com.example.ztools",
+    "productName": "ztools",
     "directories": {
       "output": "release-build"
     },
@@ -21,7 +21,8 @@
       "preload.js",
       "src/server/**/*",
       "dist/**/*",
-      "devtools/**/*"
+      "devtools/**/*",
+      "build/icon.png"
     ],
     "asar": false,
     "extraResources": [
@@ -43,13 +44,18 @@
     },
     "publish": [
       {
-        "provider": "generic",
-        "url": "http://localhost/updates/"
+        "provider": "github",
+        "owner": "zhaichong",
+        "repo": "zdevtools"
       }
     ]
   },
   "author": "Antigravity",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zhaichong/zdevtools.git"
+  },
   "dependencies": {
     "electron-updater": "^5.3.0",
     "express": "^4.19.2",

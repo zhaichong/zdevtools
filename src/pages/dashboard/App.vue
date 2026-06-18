@@ -1,6 +1,18 @@
 <template>
     <div class="app-shell">
-        <TopBar :status="status" @refresh="fetchTargets" @restart="restartAdb" />
+        <TopBar
+            :status="status"
+            :update-status="updateStatus"
+            :download-progress="downloadProgress"
+            :update-info="updateInfo"
+            :update-error-message="errorMessage"
+            :current-version="currentVersion"
+            @refresh="fetchTargets"
+            @restart="restartAdb"
+            @check-update="checkForUpdates"
+            @download-update="downloadUpdate"
+            @quit-install="quitAndInstall"
+        />
         <main>
             <section class="workspace">
                 <div class="devices-list">
@@ -20,12 +32,23 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
 import { useDevices } from './composables/useDevices.js';
+import { useUpdate } from './composables/useUpdate.js';
 import TopBar from './components/TopBar.vue';
 import DeviceCard from './components/DeviceCard.vue';
 
 const { data, status, fetchTargets, restartAdb } = useDevices();
+
+const {
+    updateStatus,
+    downloadProgress,
+    updateInfo,
+    errorMessage,
+    currentVersion,
+    checkForUpdates,
+    downloadUpdate,
+    quitAndInstall
+} = useUpdate();
 
 function openWorkbench({ device, proc, target }) {
     const params = new URLSearchParams({
@@ -38,5 +61,4 @@ function openWorkbench({ device, proc, target }) {
     });
     window.open(`/workbench.html?${params}`, '_blank');
 }
-
 </script>

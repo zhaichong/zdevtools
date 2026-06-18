@@ -231,7 +231,7 @@ onBeforeUnmount(() => {
     <div class="root-workbench">
         <header class="root-topbar">
             <div class="target-title">
-                <strong>Local Inspect</strong>
+                <strong>ztools</strong>
                 <span>{{ targetMeta }}</span>
             </div>
 

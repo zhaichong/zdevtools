@@ -23,7 +23,8 @@ async function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1200,
         height: 800,
-        title: 'Local Inspect',
+        title: 'ztools',
+        icon: path.join(__dirname, 'build/icon.png'),
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
@@ -52,32 +53,50 @@ async function createWindow() {
         dialog.showErrorBox('Server Start Error', e.toString());
     }
 
-    // Auto-Updater logic
-    autoUpdater.checkForUpdatesAndNotify();
-
-    autoUpdater.on('update-available', () => {
-        dialog.showMessageBox(mainWindow, {
-            type: 'info',
-            title: 'Found Updates',
-            message: 'A new version is available. Downloading now...'
-        });
+    // Auto-Updater：启动时静默检查，事件通过 IPC 转发到渲染进程
+    autoUpdater.autoDownload = false; // 改为手动下载，让用户在 UI 中看到进度
+    autoUpdater.checkForUpdates().catch(err => {
+        console.log('[updater] Startup check skipped or failed:', err.message);
     });
 
-    autoUpdater.on('update-downloaded', () => {
-        dialog.showMessageBox(mainWindow, {
-            type: 'info',
-            title: 'Update Ready',
-            message: 'A new version has been downloaded. Restart the application to apply the updates.',
-            buttons: ['Restart', 'Later']
-        }).then((returnValue) => {
-            if (returnValue.response === 0) {
-                autoUpdater.quitAndInstall();
-            }
+    // 将所有 autoUpdater 事件转发到渲染进程
+    autoUpdater.on('checking-for-update', () => {
+        mainWindow.webContents.send('update:status', { type: 'checking' });
+    });
+    autoUpdater.on('update-available', (info) => {
+        mainWindow.webContents.send('update:status', {
+            type: 'available',
+            version: info.version,
+            releaseDate: info.releaseDate,
+            releaseNotes: info.releaseNotes
         });
     });
-
+    autoUpdater.on('update-not-available', (info) => {
+        mainWindow.webContents.send('update:status', {
+            type: 'not-available',
+            version: info.version
+        });
+    });
+    autoUpdater.on('download-progress', (progress) => {
+        mainWindow.webContents.send('update:status', {
+            type: 'download-progress',
+            percent: Math.floor(progress.percent),
+            bytesPerSecond: progress.bytesPerSecond,
+            transferred: progress.transferred,
+            total: progress.total
+        });
+    });
+    autoUpdater.on('update-downloaded', (info) => {
+        mainWindow.webContents.send('update:status', {
+            type: 'downloaded',
+            version: info.version
+        });
+    });
     autoUpdater.on('error', (err) => {
-        console.error('AutoUpdater Error:', err);
+        mainWindow.webContents.send('update:status', {
+            type: 'error',
+            message: err ? (err.message || String(err)) : 'Unknown error'
+        });
     });
 }
 
@@ -124,6 +143,22 @@ app.on('activate', () => {
     }
 });
 
+// 优雅关闭：清理 ADB forward 并关闭 HTTP server
+app.on('before-quit', async (event) => {
+    event.preventDefault();
+    try {
+        const { runAdb } = require('./src/server/adb.js');
+        const { closeServer } = require('./src/server/index.js');
+        console.log('[main] before-quit: cleaning up...');
+        await runAdb(['forward', '--remove-all']);
+        await closeServer();
+        console.log('[main] before-quit: cleanup complete');
+    } catch (e) {
+        console.error('[main] before-quit error:', e);
+    }
+    app.exit(0);
+});
+
 ipcMain.handle('get-targets', async () => {
     return await getAdbTargets();
 });
@@ -159,4 +194,34 @@ ipcMain.handle('load-rrweb-chunks', async (event, targetId) => {
         console.error('Failed to load rrweb chunks:', e);
         return [];
     }
+});
+
+// ── 在线更新 IPC handlers ──
+
+ipcMain.handle('check-for-update', async () => {
+    try {
+        const result = await autoUpdater.checkForUpdates();
+        return { ok: true, updateInfo: result ? result.updateInfo : null };
+    } catch (e) {
+        console.error('[updater] check-for-update error:', e.message);
+        return { ok: false, error: e.message };
+    }
+});
+
+ipcMain.handle('download-update', async () => {
+    try {
+        await autoUpdater.downloadUpdate();
+        return { ok: true };
+    } catch (e) {
+        console.error('[updater] download-update error:', e.message);
+        return { ok: false, error: e.message };
+    }
+});
+
+ipcMain.handle('quit-and-install', () => {
+    autoUpdater.quitAndInstall();
+});
+
+ipcMain.handle('get-app-version', () => {
+    return app.getVersion();
 });

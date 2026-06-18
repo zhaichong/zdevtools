@@ -1,3 +1,4 @@
-provider: generic
-url: http://localhost/updates/
-updaterCacheDirName: local-inspect-updater
+owner: zhaichong
+repo: zdevtools
+provider: github
+updaterCacheDirName: ztools-updater

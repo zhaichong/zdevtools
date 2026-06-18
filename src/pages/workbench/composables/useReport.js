@@ -72,7 +72,7 @@ export function useReport() {
         if (!report) return '';
         const related = relatedBreadcrumbs(report.causes[0] || { lastSeen: Date.now() }, report.breadcrumbs);
         return [
-            '# Local Inspect 根因报告',
+            '# ztools 根因报告',
             '',
             `- 项目: ${report.profile.label}`,
             `- 页面: ${report.snapshot?.href || report.target?.url}`,

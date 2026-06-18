@@ -1,0 +1,33 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'           # 推送 v1.0.4 等 tag 时触发
+  workflow_dispatch:    # 也支持手动触发（在 GitHub Actions 页面点击）
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Vite frontend
+        run: npx vite build
+
+      - name: Build & Publish (electron-builder)
+        run: npx electron-builder --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          # electron-builder 自动读取 GH_TOKEN 发布到 GitHub Releases

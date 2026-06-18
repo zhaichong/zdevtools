@@ -5,9 +5,13 @@ const { getAdbTargets, getLogcat, restartAdb, findFreePort } = require('./adb.js
 const { createWsProxy, mountWsUpgrade } = require('./proxy.js');
 const { requestTimeout, asyncHandler, errorHandler } = require('./middleware.js');
 
+/** @type {import('http').Server|null} */
+let httpServer = null;
+
 async function startServer() {
     const app = express();
     const server = createServer(app);
+    httpServer = server; // 保存引用供优雅关闭
     const proxy = createWsProxy();
 
     // 静态资源
@@ -53,6 +57,19 @@ async function startServer() {
     });
 }
 
+/**
+ * 关闭 HTTP server，返回 Promise 确保优雅关闭完成
+ */
+function closeServer() {
+    return new Promise((resolve) => {
+        if (!httpServer) return resolve();
+        httpServer.close((err) => {
+            if (err) console.error('[server] close error:', err.message);
+            resolve();
+        });
+    });
+}
+
 // 保持向后兼容
 const { getAdbPath } = require('./adb.js');
-module.exports = { startServer, getAdbPath, getAdbTargets };
+module.exports = { startServer, closeServer, getAdbPath, getAdbTargets };

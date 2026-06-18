@@ -1,5 +1,6 @@
 import { ref } from 'vue';
 import { normalizeCdpEvent } from '../utils/cdp-events.js';
+import { RingBuffer } from '../utils/ring-buffer.js';
 
 /**
  * 统一的 CDP WebSocket 客户端 composable
@@ -15,6 +16,10 @@ export function useCdpClient(port, targetId, options = {}) {
     const { includeTime = false, connectTimeout = 5000, sendTimeout = 7000 } = options;
     const connected = ref(false);
     const events = ref([]);
+
+    // 环形缓冲区：O(1) push + 自动淘汰，避免 Array.splice 的 O(n) 开销
+    const eventBuffer = new RingBuffer(2000);
+    let pushCount = 0;
 
     let ws = null;
     let id = 1;
@@ -58,33 +63,74 @@ export function useCdpClient(port, targetId, options = {}) {
 
             const normalized = normalizeCdpEvent(payload, { includeTime });
             if (normalized) {
-                events.value.push(normalized);
-                // Cap events array to prevent unbounded memory growth
-                if (events.value.length > 2000) events.value.splice(0, events.value.length - 2000);
+                eventBuffer.push(normalized);
+                pushCount++;
+                // 每 50 次 push 批量同步一次到 Vue ref，避免每次事件都触发 O(n) 的数组操作
+                if (pushCount % 50 === 0) {
+                    events.value = eventBuffer.toArray();
+                }
             }
         }
     }
 
     function connect() {
         return new Promise((resolve, reject) => {
+            let attempts = 0;
+            const maxAttempts = 5;
             const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-            ws = new WebSocket(`${protocol}://${location.host}/ws-proxy/${port}/devtools/page/${targetId}`);
-            const timer = setTimeout(() => reject(new Error('CDP connect timeout')), connectTimeout);
-            ws.onopen = () => {
-                clearTimeout(timer);
-                connected.value = true;
-                resolve();
-            };
-            ws.onerror = () => {
-                clearTimeout(timer);
-                reject(new Error('CDP websocket error'));
-            };
-            ws.onmessage = event => onMessage(event);
-            ws.onclose = () => {
-                connected.value = false;
-                for (const p of pending.values()) p.reject(new Error('CDP connection closed'));
-                pending.clear();
-            };
+            const wsUrl = `${protocol}://${location.host}/ws-proxy/${port}/devtools/page/${targetId}`;
+
+            function tryConnect() {
+                attempts++;
+                ws = new WebSocket(wsUrl);
+
+                const timeoutMs = connectTimeout * attempts; // 递增超时
+                const timer = setTimeout(() => {
+                    ws.close();
+                    if (attempts < maxAttempts) {
+                        const delay = Math.min(1000 * Math.pow(2, attempts - 1), 10000);
+                        console.log(`[cdp] connect timeout, retrying in ${delay}ms (attempt ${attempts}/${maxAttempts})`);
+                        setTimeout(tryConnect, delay);
+                    } else {
+                        reject(new Error(`CDP connect failed after ${maxAttempts} attempts`));
+                    }
+                }, timeoutMs);
+
+                ws.onopen = () => {
+                    clearTimeout(timer);
+                    connected.value = true;
+                    console.log(`[cdp] connected on attempt ${attempts}`);
+                    // 重连后自动重新启用 CDP domains
+                    if (attempts > 1) {
+                        enable().catch(e => console.warn('[cdp] re-enable after reconnect failed:', e));
+                    }
+                    resolve();
+                };
+
+                ws.onerror = () => {
+                    clearTimeout(timer);
+                    // 让 onclose 处理重试逻辑
+                };
+
+                ws.onmessage = event => onMessage(event);
+
+                ws.onclose = (event) => {
+                    connected.value = false;
+                    clearTimeout(timer);
+                    // 清理未完成的请求
+                    for (const p of pending.values()) p.reject(new Error('CDP connection closed'));
+                    pending.clear();
+
+                    // 正常关闭(code 1000)或已达最大重试次数则不重连
+                    if (event.code === 1000 || attempts >= maxAttempts) return;
+
+                    const delay = Math.min(1000 * Math.pow(2, attempts - 1), 10000);
+                    console.log(`[cdp] disconnected (code=${event.code}), reconnecting in ${delay}ms (attempt ${attempts}/${maxAttempts})`);
+                    setTimeout(tryConnect, delay);
+                };
+            }
+
+            tryConnect();
         });
     }
 
@@ -126,5 +172,10 @@ export function useCdpClient(port, targetId, options = {}) {
         if (ws && ws.readyState <= 1) ws.close();
     }
 
-    return { connected, events, connect, send, enable, evaluate, close, onEvent, offEvent, removeAllListeners };
+    /** 强制同步环形缓冲区到 events ref（外部 poll 前调用以确保获取最新数据） */
+    function syncEvents() {
+        events.value = eventBuffer.toArray();
+    }
+
+    return { connected, events, connect, send, enable, evaluate, close, onEvent, offEvent, removeAllListeners, syncEvents };
 }

@@ -3,6 +3,7 @@ import { sourceHint } from '@/shared/utils/format.js';
 import { normalizeStack, parseStackText, extractStack, extractCallFrames } from '@/shared/utils/stack.js';
 import { classifyError } from '@/shared/utils/classify.js';
 import { decodeErrorPage } from '@/shared/utils/format.js';
+import { LRUCache } from '@/shared/utils/ring-buffer.js';
 
 function fingerprint(text) { return String(text || '').replace(/\d+/g, '#').slice(0, 160); }
 function topFrameKey(stack) { const f = stack?.[0]; return f ? `${f.url || ''}:${f.lineNumber || ''}:${f.columnNumber || ''}` : ''; }
@@ -100,8 +101,9 @@ function bridgeNext(missing, profileId) {
  * 构建根因分析 composable
  */
 export function useRootCauses() {
-    // 缓存已计算的 related，避免 poll 时窗口漂移导致上下文丢失
-    const relatedCache = new Map();
+    // 缓存已计算的 related（LRU + TTL），避免 poll 时窗口漂移导致上下文丢失
+    // 上限 50 条，5 分钟 TTL，防止长调试会话内存泄漏
+    const relatedCache = new LRUCache({ maxSize: 50, ttl: 5 * 60 * 1000 });
 
     function buildRootCauses(rawEvents, snapshot, snapshotHref, profileId, breadcrumbs) {
         const events = dedupeEvents(rawEvents.map(normalizeEventForCause));

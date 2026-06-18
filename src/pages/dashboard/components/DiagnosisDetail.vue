@@ -122,7 +122,7 @@ function copyMd() {
     if (!props.detail?.diagnosis) return;
     const d = props.detail.diagnosis;
     const lines = [
-        '# Local Inspect 诊断报告', '',
+        '# ztools 诊断报告', '',
         `- 项目识别: ${d.profile.label}`,
         `- 设备: ${d.device.model || d.device.id} Android ${d.device.androidVersion || '-'}`,
         `- 页面: ${d.snapshot?.href || d.target.url || '-'}`,
