@@ -1,6 +1,7 @@
 node_modules/
 dist/
 build/
+release-build/
 *.exe
 *.dll
 *.zip
@@ -9,3 +10,4 @@ npm-debug.log*
 yarn-error.log*
 Thumbs.db
 .DS_Store
+*.blockmap
