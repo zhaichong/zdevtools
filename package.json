@@ -64,7 +64,8 @@
     "prompts": "^2.4.2",
     "rrweb": "^2.0.1",
     "rrweb-player": "^2.0.1",
-    "vue": "^3.5.38"
+    "vue": "^3.5.38",
+    "vue-virtual-scroller": "^2.0.0-beta.8"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^4.6.2",

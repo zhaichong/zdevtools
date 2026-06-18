@@ -1,4 +1,4 @@
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
@@ -335,19 +335,42 @@ function redactSensitive(text) {
         .replace(/(Bearer\s+)[A-Za-z0-9._-]+/gi, '$1[REDACTED]');
 }
 
-async function getLogcat(deviceId) {
+async function getLogcat(deviceId, since) {
     if (!deviceId) return { status: 'error', message: 'deviceId is required', lines: [] };
-    const result = await runAdb(['-s', deviceId, 'logcat', '-d', '-v', 'time', '-t', '500'], 9000);
-    if (!result.ok) {
-        return { status: 'error', message: result.error || result.stderr || 'logcat failed', lines: [] };
-    }
-    const keywords = /(chromium|webview|console|pageLoadFinished|toLogInE|toLogInI|writeLog|LocalInspect|zhbf|zhct|NurseNtv|error|exception|crash|mqtt|mattress)/i;
-    const lines = result.stdout
-        .split(/\r?\n/)
-        .filter(line => keywords.test(line))
-        .slice(-200)
-        .map(redactSensitive);
-    return { status: 'success', lines };
+    // -d = dump 设备缓冲区全部内容后退出（设备缓冲区自带环形淘汰，无需 -t 限制）
+    // -T <timestamp> = 只取该时间之后的行，实现增量拉取
+    const args = ['-s', deviceId, 'logcat', '-d', '-v', 'time'];
+    if (since) args.push('-T', since);
+    // 使用 spawn 流式收集 stdout，不受 execFile 的 1MB maxBuffer 限制
+    return new Promise((resolve) => {
+        const child = spawn(getAdbPath(), args, {
+            windowsHide: true
+        });
+        let stdout = '';
+        let stderr = '';
+        const timer = setTimeout(() => {
+            child.kill();
+            resolve({ status: 'error', message: 'logcat timed out after 15s', lines: [] });
+        }, 15000);
+        child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+        child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+        child.on('error', (err) => {
+            clearTimeout(timer);
+            resolve({ status: 'error', message: err.message, lines: [] });
+        });
+        child.on('close', (code) => {
+            clearTimeout(timer);
+            if (code !== 0) {
+                resolve({ status: 'error', message: stderr || `logcat exited with code ${code}`, lines: [] });
+                return;
+            }
+            const lines = stdout
+                .split(/\r?\n/)
+                .filter(line => line.trim())
+                .map(redactSensitive);
+            resolve({ status: 'success', lines });
+        });
+    });
 }
 
 async function restartAdb() {

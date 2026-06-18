@@ -10,6 +10,7 @@ import { useSourceMap } from './composables/useSourceMap.js';
 import { useReport } from './composables/useReport.js';
 import { useNetworkMonitor } from './composables/useNetworkMonitor.js';
 import { useConsoleStream } from './composables/useConsoleStream.js';
+import { useLogcat } from './composables/useLogcat.js';
 import RootStrip from './components/RootStrip.vue';
 import RailNav from './components/RailNav.vue';
 import DevToolsFrame from './components/DevToolsFrame.vue';
@@ -38,7 +39,6 @@ const diagnosisOpen = ref(true);
 const report = ref(null);
 const snapshot = ref(null);
 const probe = reactive({ breadcrumbs: [], errors: [], network: [] });
-const logcat = ref([]);
 const profile = ref(identifyProject(config.url));
 const showRrwebModal = ref(false);
 
@@ -50,6 +50,7 @@ const { buildReport: buildReportObj, fallbackReport, buildMarkdown, buildCauseTe
 
 const networkMonitor = useNetworkMonitor(cdpClient);
 const consoleStream = useConsoleStream(cdpClient);
+const logcatManager = useLogcat();
 
 let pollTimer = null;
 
@@ -83,7 +84,7 @@ const counts = computed(() => {
         bridge: byKind('bridge'),
         source: sourceStats.matched,
         timeline: breadcrumbs.value.length,
-        logcat: logcat.value.length
+        logcat: logcatManager.entries.value.length
     };
 });
 
@@ -108,16 +109,6 @@ function allRawEvents() {
     ];
 }
 
-async function fetchLogcat() {
-    if (!config.deviceId) return [];
-    try {
-        const data = await window.electronAPI.getLogcat(config.deviceId);
-        return data.lines || [];
-    } catch (e) {
-        return [`logcat failed: ${e.message}`];
-    }
-}
-
 function renderReport() {
     const rawEvents = allRawEvents();
     const events = dedupeEvents(rawEvents.map(normalizeEventForCause));
@@ -126,7 +117,8 @@ function renderReport() {
     applySourceToCauses(causesList);
     report.value = buildReportObj({
         config, profile: profile.value, snapshot: snapshot.value,
-        events, causes: causesList, breadcrumbs: bc, sourceStats, logcat: logcat.value
+        events, causes: causesList, breadcrumbs: bc, sourceStats,
+        logcat: logcatManager.entries.value.map(e => e.raw)
     });
     if (!selectedCauseId.value && causesList[0]) selectedCauseId.value = causesList[0].id;
 }
@@ -156,7 +148,7 @@ async function collect({ reconnect }) {
         if (probeData) Object.assign(probe, probeData);
         snapshot.value = await cdpClient.evaluate(runtimeSnapshotExpression());
         profile.value = identifyProject(config.url, snapshot.value, allRawEvents());
-        logcat.value = await fetchLogcat();
+        await logcatManager.fetchLogcat(config.deviceId);
         renderReport();
         setStatus('监听中', '');
         setupAutoReinject(() => {
@@ -177,6 +169,7 @@ async function doPoll() {
             Object.assign(probe, probeData);
             renderReport();
         }
+        await logcatManager.fetchLogcat(config.deviceId);
     } catch (e) { /* ignore */ }
 }
 
@@ -290,7 +283,25 @@ onBeforeUnmount(() => {
                     />
                     <LogcatView
                         v-show="activePanel === 'logs'"
-                        :lines="logcat"
+                        :entries="logcatManager.entries.value"
+                        :filtered-entries="logcatManager.filteredEntries.value"
+                        :search-text="logcatManager.searchText.value"
+                        :filter-level="logcatManager.filterLevel.value"
+                        :paused="logcatManager.paused.value"
+                        :auto-scroll="logcatManager.autoScroll.value"
+                        :match-index="logcatManager.matchIndex.value"
+                        :match-count="logcatManager.matchCount.value"
+                        :loading="logcatManager.loading.value"
+                        :error="logcatManager.error.value"
+                        :level-labels="logcatManager.LEVEL_LABELS"
+                        @update:search-text="logcatManager.searchText.value = $event"
+                        @update:filter-level="logcatManager.filterLevel.value = $event"
+                        @toggle-pause="logcatManager.togglePause()"
+                        @toggle-auto-scroll="logcatManager.toggleAutoScroll()"
+                        @clear="logcatManager.clear()"
+                        @next-match="logcatManager.nextMatch()"
+                        @prev-match="logcatManager.prevMatch()"
+                        @refresh="logcatManager.fetchLogcat(config.deviceId)"
                     />
                     <DeviceInfoPanel
                         v-show="activePanel === 'device'"
@@ -307,7 +318,7 @@ onBeforeUnmount(() => {
                         :report="report"
                         :active-view="'causes'"
                         :breadcrumbs="breadcrumbs"
-                        :logcat-lines="logcat"
+                        :logcat-lines="logcatManager.entries.value"
                         :source-stats="sourceStats"
                         :on-evaluate="evaluateForCause"
                         @toggle="diagnosisOpen = !diagnosisOpen"

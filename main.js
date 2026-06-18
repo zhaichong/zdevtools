@@ -163,8 +163,8 @@ ipcMain.handle('get-targets', async () => {
     return await getAdbTargets();
 });
 
-ipcMain.handle('get-logcat', async (event, deviceId) => {
-    return await getLogcat(deviceId);
+ipcMain.handle('get-logcat', async (event, deviceId, since) => {
+    return await getLogcat(deviceId, since);
 });
 
 ipcMain.handle('restart-adb', async () => {
