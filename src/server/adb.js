@@ -335,42 +335,62 @@ function redactSensitive(text) {
         .replace(/(Bearer\s+)[A-Za-z0-9._-]+/gi, '$1[REDACTED]');
 }
 
-async function getLogcat(deviceId, since) {
-    if (!deviceId) return { status: 'error', message: 'deviceId is required', lines: [] };
-    // -d = dump 设备缓冲区全部内容后退出（设备缓冲区自带环形淘汰，无需 -t 限制）
-    // -T <timestamp> = 只取该时间之后的行，实现增量拉取
-    const args = ['-s', deviceId, 'logcat', '-d', '-v', 'time'];
-    if (since) args.push('-T', since);
-    // 使用 spawn 流式收集 stdout，不受 execFile 的 1MB maxBuffer 限制
-    return new Promise((resolve) => {
-        const child = spawn(getAdbPath(), args, {
-            windowsHide: true
-        });
-        let stdout = '';
-        let stderr = '';
-        const timer = setTimeout(() => {
-            child.kill();
-            resolve({ status: 'error', message: 'logcat timed out after 15s', lines: [] });
-        }, 15000);
-        child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
-        child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
-        child.on('error', (err) => {
-            clearTimeout(timer);
-            resolve({ status: 'error', message: err.message, lines: [] });
-        });
-        child.on('close', (code) => {
-            clearTimeout(timer);
-            if (code !== 0) {
-                resolve({ status: 'error', message: stderr || `logcat exited with code ${code}`, lines: [] });
-                return;
-            }
-            const lines = stdout
-                .split(/\r?\n/)
-                .filter(line => line.trim())
-                .map(redactSensitive);
-            resolve({ status: 'success', lines });
-        });
+// Map to keep track of active logcat processes
+const activeLogcatStreams = new Map();
+
+async function startLogcatStream(deviceId, webContents) {
+    if (!deviceId) return { status: 'error', message: 'deviceId is required' };
+    
+    // Stop existing stream if any
+    stopLogcatStream(deviceId);
+    
+    const args = ['-s', deviceId, 'logcat', '-v', 'time'];
+    const child = spawn(getAdbPath(), args, {
+        windowsHide: true
     });
+    
+    activeLogcatStreams.set(deviceId, child);
+
+    let buffer = '';
+
+    child.stdout.on('data', (chunk) => {
+        buffer += chunk.toString();
+        let lines = buffer.split(/\r?\n/);
+        // The last element is either an empty string (if ends with newline) 
+        // or a partial line. Keep it in the buffer.
+        buffer = lines.pop(); 
+        
+        if (lines.length > 0) {
+            lines = lines.map(line => redactSensitive(line.trim())).filter(Boolean);
+            if (lines.length > 0 && !webContents.isDestroyed()) {
+                webContents.send('logcat-data', lines);
+            }
+        }
+    });
+
+    child.on('error', (err) => {
+        if (!webContents.isDestroyed()) {
+            webContents.send('logcat-error', `Logcat process error: ${err.message}`);
+        }
+        activeLogcatStreams.delete(deviceId);
+    });
+
+    child.on('close', (code) => {
+        if (code !== 0 && code !== null && !webContents.isDestroyed()) {
+            webContents.send('logcat-error', `Logcat process exited with code ${code}`);
+        }
+        activeLogcatStreams.delete(deviceId);
+    });
+
+    return { status: 'success' };
+}
+
+function stopLogcatStream(deviceId) {
+    const child = activeLogcatStreams.get(deviceId);
+    if (child) {
+        child.kill();
+        activeLogcatStreams.delete(deviceId);
+    }
 }
 
 async function restartAdb() {
@@ -392,5 +412,5 @@ function findFreePort(startPort) {
 }
 
 module.exports = {
-    getAdbPath, runAdb, getAdbTargets, getLogcat, restartAdb, findFreePort
+    getAdbPath, runAdb, getAdbTargets, startLogcatStream, stopLogcatStream, restartAdb, findFreePort
 };

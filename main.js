@@ -3,7 +3,7 @@ const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const { startServer } = require('./src/server/index.js');
-const { getAdbTargets, getLogcat, restartAdb } = require('./src/server/adb.js');
+const { getAdbTargets, startLogcatStream, stopLogcatStream, restartAdb } = require('./src/server/adb.js');
 
 process.on('uncaughtException', (err) => {
     console.error('[main] uncaughtException:', err);
@@ -163,8 +163,13 @@ ipcMain.handle('get-targets', async () => {
     return await getAdbTargets();
 });
 
-ipcMain.handle('get-logcat', async (event, deviceId, since) => {
-    return await getLogcat(deviceId, since);
+ipcMain.handle('start-logcat', async (event, deviceId) => {
+    return await startLogcatStream(deviceId, event.sender);
+});
+
+ipcMain.handle('stop-logcat', async (event, deviceId) => {
+    stopLogcatStream(deviceId);
+    return { status: 'success' };
 });
 
 ipcMain.handle('restart-adb', async () => {

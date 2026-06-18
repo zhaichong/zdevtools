@@ -151,32 +151,25 @@ export function useLogcat() {
         return filteredEntries.value[idx] || null;
     });
 
-    /**
-     * 从设备拉取 logcat 日志
-     * - 首次：全量 dump（since=null），清空 RingBuffer 重建
-     * - 后续：增量拉取（since=上次最后一条时间戳），仅追加新行
-     *
-     * 核心优化：不再调用 ring.toArray() + entries.value = newArray，
-     * 而是直接将新条目 push 到反应式数组，Vue 只会 patch 新增 DOM 节点。
-     *
-     * @param {string} deviceId
-     */
-    async function fetchLogcat(deviceId) {
-        loading.value = true;
+    let cleanupData = null;
+    let cleanupError = null;
+
+    function startStream(deviceId) {
+        if (!deviceId) return;
+        
+        loading.value = entries.value.length === 0;
         error.value = '';
-        try {
-            const since = lastTimestamp;
-            const data = await window.electronAPI.getLogcat(deviceId, since);
-            if (data.status === 'error') {
-                error.value = data.message || 'logcat failed';
-                return;
-            }
+        
+        if (cleanupData) { cleanupData(); cleanupData = null; }
+        if (cleanupError) { cleanupError(); cleanupError = null; }
+
+        window.electronAPI.startLogcat(deviceId);
+
+        cleanupData = window.electronAPI.onLogcatData((lines) => {
+            if (loading.value) loading.value = false;
             if (paused.value) return;
+            if (!lines || lines.length === 0) return;
 
-            const lines = data.lines || [];
-            if (lines.length === 0) return;
-
-            // 解析并收集新条目（同时灌入 RingBuffer）
             const newEntries = [];
             for (const line of lines) {
                 const entry = parseLogLine(line);
@@ -184,36 +177,26 @@ export function useLogcat() {
                 newEntries.push(entry);
             }
 
-            if (!since) {
-                // ── 首次全量：清空 + 全量重建 ──
-                entries.value = ring.toArray();
-                rebuildStats();
-            } else {
-                // ── 增量：push 追加 + 削头 ──
-                entries.value.push(...newEntries);
-
-                // 超出上限时淘汰最旧条目
-                const excess = entries.value.length - MAX_ENTRIES;
-                if (excess > 0) {
-                    const removed = entries.value.splice(0, excess);
-                    adjustStats(removed, -1);
-                }
-
-                // 增量更新统计
-                adjustStats(newEntries, 1);
+            entries.value.push(...newEntries);
+            const excess = entries.value.length - MAX_ENTRIES;
+            if (excess > 0) {
+                const removed = entries.value.splice(0, excess);
+                adjustStats(removed, -1);
             }
+            adjustStats(newEntries, 1);
+        });
 
-            // 记录最后一条已解析行的时间戳，供下次增量拉取
-            for (let i = newEntries.length - 1; i >= 0; i--) {
-                if (newEntries[i].parsed && newEntries[i].timestamp) {
-                    lastTimestamp = newEntries[i].timestamp;
-                    break;
-                }
-            }
-        } catch (e) {
-            error.value = `获取 logcat 失败: ${e.message}`;
-        } finally {
+        cleanupError = window.electronAPI.onLogcatError((errMsg) => {
+            error.value = `获取 logcat 失败: ${errMsg}`;
             loading.value = false;
+        });
+    }
+
+    function stopStream(deviceId) {
+        if (cleanupData) { cleanupData(); cleanupData = null; }
+        if (cleanupError) { cleanupError(); cleanupError = null; }
+        if (deviceId) {
+            window.electronAPI.stopLogcat(deviceId);
         }
     }
 
@@ -270,7 +253,8 @@ export function useLogcat() {
         matchCount,
         currentMatchEntry,
         // 方法
-        fetchLogcat,
+        startStream,
+        stopStream,
         clear,
         togglePause,
         toggleAutoScroll,

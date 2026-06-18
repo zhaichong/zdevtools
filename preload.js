@@ -3,7 +3,18 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
     // ADB / 设备相关
     getTargets: () => ipcRenderer.invoke('get-targets'),
-    getLogcat: (deviceId, since) => ipcRenderer.invoke('get-logcat', deviceId, since),
+    startLogcat: (deviceId) => ipcRenderer.invoke('start-logcat', deviceId),
+    stopLogcat: (deviceId) => ipcRenderer.invoke('stop-logcat', deviceId),
+    onLogcatData: (callback) => {
+        const handler = (_event, lines) => callback(lines);
+        ipcRenderer.on('logcat-data', handler);
+        return () => ipcRenderer.removeListener('logcat-data', handler);
+    },
+    onLogcatError: (callback) => {
+        const handler = (_event, error) => callback(error);
+        ipcRenderer.on('logcat-error', handler);
+        return () => ipcRenderer.removeListener('logcat-error', handler);
+    },
     restartAdb: () => ipcRenderer.invoke('restart-adb'),
     saveRrwebChunk: (targetId, chunk) => ipcRenderer.invoke('save-rrweb-chunk', targetId, chunk),
     loadRrwebChunks: (targetId) => ipcRenderer.invoke('load-rrweb-chunks', targetId),

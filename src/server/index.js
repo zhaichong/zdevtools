@@ -1,7 +1,7 @@
 const express = require('express');
 const { createServer } = require('http');
 const path = require('path');
-const { getAdbTargets, getLogcat, restartAdb, findFreePort } = require('./adb.js');
+const { getAdbTargets, startLogcatStream, stopLogcatStream, restartAdb, findFreePort } = require('./adb.js');
 const { createWsProxy, mountWsUpgrade } = require('./proxy.js');
 const { requestTimeout, asyncHandler, errorHandler } = require('./middleware.js');
 
@@ -52,8 +52,9 @@ async function startServer() {
     mountWsUpgrade(server, proxy);
 
     const port = await findFreePort(8999);
-    return new Promise(resolve => {
-        server.listen(port, () => resolve(port));
+    return new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(port, '127.0.0.1', () => resolve(port));
     });
 }
 

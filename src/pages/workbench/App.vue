@@ -148,7 +148,7 @@ async function collect({ reconnect }) {
         if (probeData) Object.assign(probe, probeData);
         snapshot.value = await cdpClient.evaluate(runtimeSnapshotExpression());
         profile.value = identifyProject(config.url, snapshot.value, allRawEvents());
-        await logcatManager.fetchLogcat(config.deviceId);
+        logcatManager.startStream(config.deviceId);
         renderReport();
         setStatus('监听中', '');
         setupAutoReinject(() => {
@@ -169,7 +169,6 @@ async function doPoll() {
             Object.assign(probe, probeData);
             renderReport();
         }
-        await logcatManager.fetchLogcat(config.deviceId);
     } catch (e) { /* ignore */ }
 }
 
@@ -217,6 +216,7 @@ onBeforeUnmount(() => {
     clearInterval(pollTimer);
     cdpClient.removeAllListeners();
     cdpClient.close();
+    logcatManager.stopStream(config.deviceId);
 });
 </script>
 
@@ -301,7 +301,7 @@ onBeforeUnmount(() => {
                         @clear="logcatManager.clear()"
                         @next-match="logcatManager.nextMatch()"
                         @prev-match="logcatManager.prevMatch()"
-                        @refresh="logcatManager.fetchLogcat(config.deviceId)"
+                        @refresh="logcatManager.startStream(config.deviceId)"
                     />
                     <DeviceInfoPanel
                         v-show="activePanel === 'device'"
