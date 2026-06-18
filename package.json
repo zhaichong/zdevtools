@@ -14,14 +14,16 @@
     "appId": "com.example.localinspect",
     "productName": "LocalInspect",
     "directories": {
-      "output": "release"
+      "output": "release-build"
     },
     "files": [
       "main.js",
+      "preload.js",
       "src/server/**/*",
       "dist/**/*",
       "devtools/**/*"
     ],
+    "asar": false,
     "extraResources": [
       {
         "from": "bin",

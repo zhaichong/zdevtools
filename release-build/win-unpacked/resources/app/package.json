@@ -1,0 +1,16 @@
+{
+  "name": "local-inspect",
+  "version": "1.0.3",
+  "description": "Local Webview Inspector",
+  "main": "main.js",
+  "author": "Antigravity",
+  "license": "ISC",
+  "dependencies": {
+    "electron-updater": "^5.3.0",
+    "express": "^4.19.2",
+    "http-proxy": "^1.18.1",
+    "rrweb": "^2.0.1",
+    "rrweb-player": "^2.0.1",
+    "vue": "^3.5.38"
+  }
+}

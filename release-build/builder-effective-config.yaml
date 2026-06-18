@@ -1,0 +1,27 @@
+directories:
+  output: release-build
+  buildResources: build
+appId: com.example.localinspect
+productName: LocalInspect
+files:
+  - filter:
+      - main.js
+      - src/server/**/*
+      - dist/**/*
+      - devtools/**/*
+asar: false
+extraResources:
+  - from: bin
+    to: bin
+    filter:
+      - '**/*'
+win:
+  target: nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+publish:
+  - provider: generic
+    url: http://localhost/updates/
+electronVersion: 22.3.27
