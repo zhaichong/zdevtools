@@ -1,5 +1,5 @@
 import { BRIDGE_METHODS } from '@/shared/constants.js';
-import rrwebScript from 'rrweb/dist/rrweb.umd.min.cjs?raw';
+import rrwebScript from '../../../../node_modules/rrweb/dist/rrweb.umd.min.cjs?raw';
 
 /**
  * 探针注入和轮询 composable
