@@ -8,8 +8,8 @@
             </div>
         </div>
         <div class="topbar-actions">
-            <button class="btn secondary" @click="$emit('refresh')" type="button">刷新设备</button>
-            <button class="btn secondary" :disabled="restarting" @click="handleRestart" type="button">重启 ADB</button>
+            <button class="btn ghost" @click="$emit('refresh')" type="button">刷新设备</button>
+            <button class="btn ghost" :disabled="restarting" @click="handleRestart" type="button">重启 ADB</button>
             <span class="status-badge" :class="status.type">{{ status.text }}</span>
         </div>
     </header>

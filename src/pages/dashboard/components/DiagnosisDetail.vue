@@ -14,8 +14,8 @@
                     <span>{{ detail.diagnosis.profile.label }}</span>
                 </div>
                 <div class="toolbar-actions">
-                    <button class="btn secondary" @click="copyJson" type="button">复制 JSON</button>
-                    <button class="btn secondary" @click="copyMd" type="button">复制 Markdown</button>
+                    <button class="btn ghost" @click="copyJson" type="button">复制 JSON</button>
+                    <button class="btn ghost" @click="copyMd" type="button">复制 Markdown</button>
                     <button class="btn primary" @click="$emit('workbench', { device: detail.diagnosis.device, proc: detail.diagnosis.proc, target: detail.diagnosis.target })" type="button">调试工作台</button>
                 </div>
             </div>

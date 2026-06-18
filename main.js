@@ -1,6 +1,7 @@
 const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
+const fs = require('fs');
 const { startServer } = require('./src/server/index.js');
 const { getAdbTargets, getLogcat, restartAdb } = require('./src/server/adb.js');
 
@@ -44,7 +45,6 @@ async function createWindow() {
             mainWindow.loadURL(`http://127.0.0.1:${localPort}/index.html`);
         }
 
-        mainWindow.webContents.openDevTools();
         mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
             console.log(`[Frontend] ${message} (${sourceId}:${line})`);
         });
@@ -82,12 +82,35 @@ async function createWindow() {
 }
 
 app.on('web-contents-created', (event, contents) => {
+    // Ensure child windows (like workbench opened via window.open) get the same secure settings
+
+    contents.setWindowOpenHandler((details) => {
+        return {
+            action: 'allow',
+            overrideBrowserWindowOptions: {
+                webPreferences: {
+                    nodeIntegration: false,
+                    contextIsolation: true,
+                    preload: path.join(__dirname, 'preload.js')
+                }
+            }
+        };
+    });
+    
+    contents.on('did-create-window', (childWindow) => {
+        childWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+            console.log(`[ChildWindow] ${message} (${sourceId}:${line})`);
+        });
+    });
+
     // Strip Electron from User-Agent so Chii DevTools frontend loads assets over HTTP instead of devtools://
     const ua = contents.getUserAgent();
     contents.setUserAgent(ua.replace(/Electron\/\S+\s/g, ''));
 });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+    createWindow();
+});
 
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
@@ -111,4 +134,29 @@ ipcMain.handle('get-logcat', async (event, deviceId) => {
 
 ipcMain.handle('restart-adb', async () => {
     return await restartAdb();
+});
+
+ipcMain.handle('save-rrweb-chunk', async (event, targetId, chunk) => {
+    try {
+        const dir = path.join(app.getPath('userData'), 'rrweb');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        const file = path.join(dir, `${targetId}.jsonl`);
+        fs.appendFileSync(file, chunk + '\n');
+        return true;
+    } catch (e) {
+        console.error('Failed to save rrweb chunk:', e);
+        return false;
+    }
+});
+
+ipcMain.handle('load-rrweb-chunks', async (event, targetId) => {
+    try {
+        const file = path.join(app.getPath('userData'), 'rrweb', `${targetId}.jsonl`);
+        if (!fs.existsSync(file)) return [];
+        const content = fs.readFileSync(file, 'utf8');
+        return content.split('\n').filter(Boolean).map(line => JSON.parse(line));
+    } catch (e) {
+        console.error('Failed to load rrweb chunks:', e);
+        return [];
+    }
 });

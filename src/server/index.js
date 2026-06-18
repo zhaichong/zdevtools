@@ -25,7 +25,7 @@ async function startServer() {
             }
             if (filePath.includes('devtools')) {
                 res.setHeader('Content-Security-Policy',
-                    "img-src * data: blob:; style-src * 'unsafe-inline'; font-src * data:; script-src * 'unsafe-inline' 'unsafe-eval'"
+                    "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;"
                 );
             }
         }

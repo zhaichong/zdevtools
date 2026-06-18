@@ -2,8 +2,6 @@
     <div class="app-shell">
         <TopBar :status="status" @refresh="fetchTargets" @restart="restartAdb" />
         <main>
-            <SummaryGrid :devices="devicesTotal" :targets="targetsTotal" :errors="errorCount" :last-scan="lastScanTime" />
-            <DiagnosticsPanel :diagnostics="diagnostics" />
             <section class="workspace">
                 <div class="panel">
                     <div class="section-heading">

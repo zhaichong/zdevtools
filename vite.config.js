@@ -32,8 +32,9 @@ export default defineConfig({
         }
     },
     resolve: {
-        alias: {
-            '@': resolve(__dirname, 'src')
-        }
+        alias: [
+            { find: '@', replacement: resolve(__dirname, 'src') },
+            { find: 'rrweb/dist/rrweb.umd.min.cjs', replacement: resolve(__dirname, 'node_modules/rrweb/dist/rrweb.umd.min.cjs') }
+        ]
     }
 });

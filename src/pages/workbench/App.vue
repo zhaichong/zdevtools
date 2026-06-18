@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useCdpClient } from '@/shared/composables/useCdpClient.js';
 import { identifyProject } from '@/shared/composables/useProjectIdentify.js';
 import { runtimeSnapshotExpression } from '@/shared/utils/snapshot.js';
@@ -18,6 +18,7 @@ import NetworkPanel from './components/NetworkPanel.vue';
 import ConsolePanel from './components/ConsolePanel.vue';
 import DeviceInfoPanel from './components/DeviceInfoPanel.vue';
 import LogcatView from './components/LogcatView.vue';
+import RrwebPlayerModal from './components/RrwebPlayerModal.vue';
 
 const params = new URLSearchParams(location.search);
 const config = reactive({
@@ -39,6 +40,7 @@ const snapshot = ref(null);
 const probe = reactive({ breadcrumbs: [], errors: [], network: [] });
 const logcat = ref([]);
 const profile = ref(identifyProject(config.url));
+const showRrwebModal = ref(false);
 
 const cdpClient = useCdpClient(config.port, config.targetId, { includeTime: true });
 const { injectProbe, pollProbe, setupAutoReinject } = useProbe(cdpClient);
@@ -52,7 +54,14 @@ const consoleStream = useConsoleStream(cdpClient);
 let pollTimer = null;
 
 const targetMeta = computed(() => `${config.title || config.targetId} · ${shortUrl(config.url)}`);
+const hasActivatedDevtools = ref(false);
+watch(activePanel, (val) => {
+    if (val === 'devtools') {
+        setTimeout(() => { hasActivatedDevtools.value = true; }, 100);
+    }
+}, { immediate: true });
 const devtoolsUrl = computed(() => {
+    if (!hasActivatedDevtools.value) return '';
     const wsUrl = `${location.host}/ws-proxy/${config.port}/devtools/page/${config.targetId}`;
     return `/devtools/inspector.html?ws=${wsUrl}&theme=dark`;
 });
@@ -129,6 +138,15 @@ async function collect({ reconnect }) {
             cdpClient.close();
             await cdpClient.connect();
             await cdpClient.enable();
+            
+            // Set up rrweb transport binding
+            await cdpClient.send('Runtime.addBinding', { name: '__rrweb_emit' });
+            cdpClient.onEvent('Runtime.bindingCalled', (params) => {
+                if (params.name === '__rrweb_emit' && window.electronAPI) {
+                    window.electronAPI.saveRrwebChunk(config.targetId, params.payload);
+                }
+            });
+
             networkMonitor.setup();
             consoleStream.setup();
         }
@@ -166,7 +184,11 @@ function onRefresh() {
     relatedCache.clear();
     collect({ reconnect: false });
 }
-function onOpenDevtools() { window.open(devtoolsUrl.value, '_blank'); }
+function onOpenDevtools() { 
+    const wsUrl = `${location.host}/ws-proxy/${config.port}/devtools/page/${config.targetId}`;
+    const realUrl = `/devtools/inspector.html?ws=${wsUrl}&theme=dark`;
+    window.open(realUrl, '_blank'); 
+}
 async function onCopyMarkdown() {
     await navigator.clipboard.writeText(buildMarkdown(report.value) || '');
     setStatus('报告已复制', '');
@@ -213,7 +235,8 @@ onBeforeUnmount(() => {
                 <span>{{ targetMeta }}</span>
             </div>
 
-            <div class="top-actions">
+            <div class="h-tools">
+                <button class="btn ghost text-accent border border-accent hover:bg-accent hover:bg-opacity-10 shadow-sm" type="button" @click="showRrwebModal = true">🎥 场景回放</button>
                 <label class="btn secondary upload-btn" title="上传 .map 文件或选择 dist 目录">
                     上传 SourceMap
                     <input type="file" multiple webkitdirectory accept=".map,application/json" @change="onSourceMapUpload">
@@ -262,7 +285,7 @@ onBeforeUnmount(() => {
                         @clear="consoleStream.clear()"
                     />
                     <DevToolsFrame
-                        v-show="activePanel === 'devtools'"
+                        :class="{ 'off-screen': activePanel !== 'devtools' }"
                         :src="devtoolsUrl"
                     />
                     <LogcatView
@@ -295,5 +318,14 @@ onBeforeUnmount(() => {
                 </div>
             </section>
         </div>
+        <RrwebPlayerModal 
+            v-if="showRrwebModal" 
+            :target-id="config.targetId" 
+            :on-close="() => showRrwebModal = false" 
+        />
     </div>
 </template>
+
+<style scoped>
+.off-screen { position: absolute !important; left: -9999px !important; visibility: hidden !important; pointer-events: none !important; }
+</style>

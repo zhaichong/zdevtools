@@ -1,4 +1,5 @@
 import { BRIDGE_METHODS } from '@/shared/constants.js';
+import rrwebScript from 'rrweb/dist/rrweb.umd.min.cjs?raw';
 
 /**
  * 探针注入和轮询 composable
@@ -9,7 +10,26 @@ export function useProbe(cdpClient) {
     }
 
     async function injectProbe() {
+        // Inject rrweb first via chunking to bypass 256KB CDP limit on some Android WebViews
+        await evaluate(`window.__rrweb_code = '';`);
+        const chunkSize = 100000;
+        for (let i = 0; i < rrwebScript.length; i += chunkSize) {
+            const chunk = rrwebScript.slice(i, i + chunkSize);
+            await evaluate(`window.__rrweb_code += ${JSON.stringify(chunk)};`);
+        }
+        await evaluate(`
+            if (!window.rrweb) {
+                const s = document.createElement('script');
+                s.textContent = window.__rrweb_code;
+                document.head.appendChild(s);
+            }
+            delete window.__rrweb_code;
+        `);
+
+        // Then inject our probe
         await evaluate(`(${probeInstaller.toString()})(${JSON.stringify(BRIDGE_METHODS)})`);
+        // Start rrweb recording
+        await evaluate(`if(window.rrweb && !window.__rrweb_started__) { window.__rrweb_started__ = true; window.rrweb.record({ emit(event) { if(window.__rrweb_emit) window.__rrweb_emit(JSON.stringify(event)); } }); }`);
     }
 
     async function pollProbe() {
