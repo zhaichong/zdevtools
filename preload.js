@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     downloadUpdate: () => ipcRenderer.invoke('download-update'),
     quitAndInstall: () => ipcRenderer.invoke('quit-and-install'),
     getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+    getUpdateState: () => ipcRenderer.invoke('get-update-state'),
 
     // 更新状态事件订阅（返回取消订阅函数）
     onUpdateStatus: (callback) => {

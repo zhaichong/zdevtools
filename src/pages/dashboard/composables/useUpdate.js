@@ -34,8 +34,13 @@ export function useUpdate() {
             if (!result.ok) {
                 updateStatus.value = 'error';
                 errorMessage.value = result.error || '检查更新失败';
+            } else {
+                // 如果后端已有缓存的状态，主动拉取一次以防漏事件
+                const currentState = await api.getUpdateState();
+                if (currentState && currentState.type !== 'idle' && currentState.type !== 'checking') {
+                    handleStatusEvent(currentState);
+                }
             }
-            // 成功的状态变更由 onUpdateStatus 事件驱动
         } catch (e) {
             updateStatus.value = 'error';
             errorMessage.value = e.message || '检查更新时发生异常';
@@ -120,6 +125,15 @@ export function useUpdate() {
                 currentVersion.value = '';
             }
             unsubscribe = api.onUpdateStatus(handleStatusEvent);
+            
+            try {
+                const currentState = await api.getUpdateState();
+                if (currentState && currentState.type !== 'idle') {
+                    handleStatusEvent(currentState);
+                }
+            } catch (e) {
+                // Ignore
+            }
         }
     }
 

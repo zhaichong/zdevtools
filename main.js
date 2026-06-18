@@ -54,50 +54,61 @@ async function createWindow() {
     }
 
     // Auto-Updater：启动时静默检查，事件通过 IPC 转发到渲染进程
+    autoUpdater.forceDevUpdateConfig = true;
     autoUpdater.autoDownload = false; // 改为手动下载，让用户在 UI 中看到进度
     autoUpdater.checkForUpdates().catch(err => {
         console.log('[updater] Startup check skipped or failed:', err.message);
     });
 
-    // 将所有 autoUpdater 事件转发到渲染进程
+    let currentUpdateState = { type: 'idle' };
+
+    // 将所有 autoUpdater 事件转发到渲染进程并缓存状态
     autoUpdater.on('checking-for-update', () => {
-        mainWindow.webContents.send('update:status', { type: 'checking' });
+        currentUpdateState = { type: 'checking' };
+        mainWindow.webContents.send('update:status', currentUpdateState);
     });
     autoUpdater.on('update-available', (info) => {
-        mainWindow.webContents.send('update:status', {
+        currentUpdateState = {
             type: 'available',
             version: info.version,
             releaseDate: info.releaseDate,
             releaseNotes: info.releaseNotes
-        });
+        };
+        mainWindow.webContents.send('update:status', currentUpdateState);
     });
     autoUpdater.on('update-not-available', (info) => {
-        mainWindow.webContents.send('update:status', {
+        currentUpdateState = {
             type: 'not-available',
             version: info.version
-        });
+        };
+        mainWindow.webContents.send('update:status', currentUpdateState);
     });
     autoUpdater.on('download-progress', (progress) => {
-        mainWindow.webContents.send('update:status', {
+        currentUpdateState = {
             type: 'download-progress',
             percent: Math.floor(progress.percent),
             bytesPerSecond: progress.bytesPerSecond,
             transferred: progress.transferred,
             total: progress.total
-        });
+        };
+        mainWindow.webContents.send('update:status', currentUpdateState);
     });
     autoUpdater.on('update-downloaded', (info) => {
-        mainWindow.webContents.send('update:status', {
+        currentUpdateState = {
             type: 'downloaded',
             version: info.version
-        });
+        };
+        mainWindow.webContents.send('update:status', currentUpdateState);
     });
     autoUpdater.on('error', (err) => {
-        mainWindow.webContents.send('update:status', {
+        currentUpdateState = {
             type: 'error',
             message: err ? (err.message || String(err)) : 'Unknown error'
-        });
+        };
+        mainWindow.webContents.send('update:status', currentUpdateState);
     });
+
+    ipcMain.handle('get-update-state', () => currentUpdateState);
 }
 
 app.on('web-contents-created', (event, contents) => {
