@@ -17,7 +17,10 @@
     align-items: center;
     padding: 9px 12px;
     border-bottom: 1px solid var(--border);
-    background: var(--panel);
+    background: rgba(10, 10, 10, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    z-index: 10;
 }
 
 .target-title {
@@ -107,7 +110,7 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 16px;
-    background: var(--panel-strong);
+    background: rgba(255, 255, 255, 0.02);
 }
 
 .cause-panel.danger {

@@ -10,6 +10,15 @@ module.exports = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', 'sans-serif'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', '"Liberation Mono"', '"Courier New"', 'monospace'],
+      },
+      boxShadow: {
+        'glow': '0 0 20px rgba(255, 255, 255, 0.05)',
+        'glow-accent': '0 0 20px rgba(88, 166, 255, 0.15)',
+        'subtle': '0 4px 20px -2px rgba(0, 0, 0, 0.4)',
+      },
       colors: {
         bg: {
           base: 'var(--bg)',

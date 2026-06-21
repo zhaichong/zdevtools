@@ -5,7 +5,6 @@
             <div>
                 <h1>ztools</h1>
                 <p>
-                    Android WebView 前端报错定位台
                     <span v-if="currentVersion" class="version-tag">v{{ currentVersion }}</span>
                 </p>
             </div>
