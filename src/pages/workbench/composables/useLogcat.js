@@ -1,11 +1,4 @@
-import { ref, reactive, computed } from 'vue';
-import { RingBuffer } from '@/shared/utils/ring-buffer.js';
-
-/**
- * Logcat 行解析正则 — 匹配 adb logcat -v time 输出格式：
- * MM-DD HH:MM:SS.mmm   PID   TID  LEVEL  TAG: MESSAGE
- */
-const LINE_RE = /^(\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d{3})\s+(\d+)\s+(\d+)\s+([VDIWEF])\s+(.+?):\s*(.*)$/;
+import { ref, shallowRef, triggerRef, reactive, computed, watch } from 'vue';
 
 /** 内存上限 — 超过此数量自动淘汰最旧条目，防止无限增长 */
 const MAX_ENTRIES = 50000;
@@ -13,52 +6,59 @@ const MAX_ENTRIES = 50000;
 let _id = 0;
 
 /**
- * 解析单行 logcat 输出为结构化对象
+ * 解析单行 logcat 输出为结构化对象，支持多种主流格式
  * @param {string} line
  * @returns {object}
  */
 function parseLogLine(line) {
-    const match = line.match(LINE_RE);
-    if (!match) {
+    // 1. Threadtime format (adb logcat -v threadtime)
+    // Format: 08-22 09:18:14.857  376  376 D TAG : Message
+    let match = line.match(/^(\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d{3})\s+(\d+)\s+(\d+)\s+([VDIWEF])\s+(.+?):\s*(.*)$/);
+    if (match) {
         return {
-            id: ++_id,
-            raw: line,
-            parsed: false,
-            timestamp: '',
-            pid: '',
-            tid: '',
-            level: '',
-            tag: '',
-            message: line
+            id: ++_id, raw: line, parsed: true,
+            timestamp: match[1], pid: match[2], tid: match[3],
+            level: match[4], tag: match[5].trim(), message: match[6]
         };
     }
+    
+    // 2. Time format (adb logcat -v time)
+    // Format: 08-22 09:18:14.857 D/TAG( 376): Message
+    match = line.match(/^(\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d{3})\s+([VDIWEF])\/(.+?)\(\s*(\d+)\s*\):\s*(.*)$/);
+    if (match) {
+        return {
+            id: ++_id, raw: line, parsed: true,
+            timestamp: match[1], pid: match[4], tid: '',
+            level: match[2], tag: match[3].trim(), message: match[5]
+        };
+    }
+    
+    // 3. Brief format (adb logcat -v brief)
+    // Format: D/TAG( 376): Message
+    match = line.match(/^([VDIWEF])\/(.+?)\(\s*(\d+)\s*\):\s*(.*)$/);
+    if (match) {
+        return {
+            id: ++_id, raw: line, parsed: true,
+            timestamp: '', pid: match[3], tid: '',
+            level: match[1], tag: match[2].trim(), message: match[4]
+        };
+    }
+    
+    // 未识别的降级原始格式
     return {
-        id: ++_id,
-        raw: line,
-        parsed: true,
-        timestamp: match[1],
-        pid: match[2],
-        tid: match[3],
-        level: match[4],
-        tag: match[5],
-        message: match[6]
+        id: ++_id, raw: line, parsed: false,
+        timestamp: '', pid: '', tid: '', level: '', tag: '', message: line
     };
 }
 
 /**
- * Android Logcat 数据管理 composable
- *
- * 数据流架构：
- * - 后端 ADB 用 spawn 流式拉取，不加 -t 限制，-T 增量过滤
- * - 前端用 RingBuffer(50000) 做 O(1) 内存淘汰
- * - entries 使用增量 push/splice，避免全量数组替换触发 Vue 全量 diff
- * - stats 使用 reactive 累加器，O(1) 更新，消除 350K 次/轮的无效遍历
- * - 视图层用 vue-virtual-scroller (RecycleScroller) 做 DOM 回收
+ * Android Logcat 数据管理 composable (架构级优化版)
  */
 export function useLogcat() {
-    const ring = new RingBuffer(MAX_ENTRIES);
-    const entries = ref([]);
-    let lastTimestamp = null;
+    // 核心优化 1：使用 shallowRef 解除 5w+ 对象的深层 Proxy 性能灾难
+    const entries = shallowRef([]);
+    const filteredEntries = shallowRef([]);
+
     const searchText = ref('');
     const filterLevel = ref('all');
     const paused = ref(false);
@@ -67,90 +67,61 @@ export function useLogcat() {
     const loading = ref(false);
     const error = ref('');
 
-    // O(1) 累加统计 — 替代每次 poll 遍历 50K 条 × 7 次 filter
+    // O(1) 累加统计
     const stats = reactive({
-        total: 0,
-        verbose: 0,
-        debug: 0,
-        info: 0,
-        warning: 0,
-        error: 0,
-        fatal: 0
+        total: 0, verbose: 0, debug: 0, info: 0,
+        warning: 0, error: 0, fatal: 0
     });
 
     const LEVEL_LABELS = {
         V: 'Verbose', D: 'Debug', I: 'Info', W: 'Warning', E: 'Error', F: 'Fatal'
     };
 
-    // ========== 私有辅助 ==========
+    // ========== 内部工具函数 ==========
 
-    /** 全量重建统计（仅首次加载时使用） */
-    function rebuildStats() {
-        stats.total = entries.value.length;
-        stats.verbose = 0; stats.debug = 0; stats.info = 0;
-        stats.warning = 0; stats.error = 0; stats.fatal = 0;
-        for (const e of entries.value) {
-            if (!e.parsed) continue;
-            stats.total++;
-            incLevel(stats, e.level, 1);
-        }
-        // total 已设为 length，不需要重加
-        stats.total = entries.value.length;
-    }
-
-    /** 对一批条目增量调整统计（sign = 1 增加, -1 减少） */
     function adjustStats(batch, sign) {
         for (const e of batch) {
             if (!e.parsed) continue;
             stats.total += sign;
-            incLevel(stats, e.level, sign);
+            switch (e.level) {
+                case 'V': stats.verbose += sign; break;
+                case 'D': stats.debug += sign; break;
+                case 'I': stats.info += sign; break;
+                case 'W': stats.warning += sign; break;
+                case 'E': stats.error += sign; break;
+                case 'F': stats.fatal += sign; break;
+            }
         }
     }
 
-    function incLevel(s, level, sign) {
-        switch (level) {
-            case 'V': s.verbose += sign; break;
-            case 'D': s.debug += sign; break;
-            case 'I': s.info += sign; break;
-            case 'W': s.warning += sign; break;
-            case 'E': s.error += sign; break;
-            case 'F': s.fatal += sign; break;
+    let searchLower = '';
+    
+    // 应用当前的过滤规则到指定的日志集合
+    function applyFiltersTo(list) {
+        if (filterLevel.value === 'all' && !searchLower) return list;
+        return list.filter(e => {
+            if (filterLevel.value !== 'all' && (!e.parsed || e.level !== filterLevel.value)) return false;
+            if (searchLower && !e.raw.toLowerCase().includes(searchLower)) return false;
+            return true;
+        });
+    }
+
+    // 核心优化 2：全量过滤操作提取（仅在条件改变时触发一次）
+    function rebuildFilteredEntries() {
+        searchLower = searchText.value.toLowerCase();
+        filteredEntries.value = applyFiltersTo(entries.value);
+        if (autoScroll.value && filteredEntries.value.length > 0) {
+            matchIndex.value = filteredEntries.value.length - 1; // 自动滚屏模式下直接跳到最新匹配
+        } else {
+            matchIndex.value = 0; // 重置匹配游标
         }
     }
 
-    // ========== 公开 API ==========
-
-    /**
-     * 过滤后的日志条目：先级别过滤，再搜索过滤
-     */
-    const filteredEntries = computed(() => {
-        let list = entries.value;
-        if (filterLevel.value !== 'all') {
-            list = list.filter(e => e.parsed && e.level === filterLevel.value);
-        }
-        if (searchText.value) {
-            const q = searchText.value.toLowerCase();
-            list = list.filter(e => e.raw.toLowerCase().includes(q));
-        }
-        return list;
+    watch([filterLevel, searchText], () => {
+        rebuildFilteredEntries();
     });
 
-    /**
-     * 当前搜索匹配总数
-     */
-    const matchCount = computed(() => {
-        return searchText.value ? filteredEntries.value.length : 0;
-    });
-
-    /**
-     * 当前匹配条目（用于视图层的 scroll-into-view 定位）
-     */
-    const currentMatchEntry = computed(() => {
-        if (matchCount.value === 0) return null;
-        const idx = Math.min(matchIndex.value, matchCount.value - 1);
-        return filteredEntries.value[idx] || null;
-    });
-
+    // 状态流 API 绑定
     let cleanupData = null;
     let cleanupError = null;
 
@@ -170,20 +141,37 @@ export function useLogcat() {
             if (paused.value) return;
             if (!lines || lines.length === 0) return;
 
-            const newEntries = [];
-            for (const line of lines) {
-                const entry = parseLogLine(line);
-                ring.push(entry);
-                newEntries.push(entry);
-            }
-
-            entries.value.push(...newEntries);
-            const excess = entries.value.length - MAX_ENTRIES;
+            const newEntries = lines.map(parseLogLine);
+            let newArray = entries.value.concat(newEntries);
+            let removed = [];
+            const excess = newArray.length - MAX_ENTRIES;
             if (excess > 0) {
-                const removed = entries.value.splice(0, excess);
+                removed = newArray.slice(0, excess);
+                newArray = newArray.slice(excess);
                 adjustStats(removed, -1);
             }
             adjustStats(newEntries, 1);
+            entries.value = newArray; // triggers reactivity
+
+            // 核心优化 3：O(K) 增量过滤机制
+            const isFilterActive = filterLevel.value !== 'all' || searchLower !== '';
+            if (isFilterActive) {
+                const newMatching = applyFiltersTo(newEntries);
+                if (newMatching.length > 0 || excess > 0) {
+                    let newFiltered = filteredEntries.value.concat(newMatching);
+                    if (excess > 0 && removed.length > 0) {
+                        const maxRemovedId = removed[removed.length - 1].id;
+                        let removeCount = 0;
+                        while (removeCount < newFiltered.length && newFiltered[removeCount].id <= maxRemovedId) {
+                            removeCount++;
+                        }
+                        if (removeCount > 0) {
+                            newFiltered = newFiltered.slice(removeCount);
+                        }
+                    }
+                    filteredEntries.value = newFiltered; // triggers reactivity
+                }
+            }
         });
 
         cleanupError = window.electronAPI.onLogcatError((errMsg) => {
@@ -201,43 +189,48 @@ export function useLogcat() {
     }
 
     function clear() {
-        ring.clear();
-        lastTimestamp = null;
         entries.value = [];
+        filteredEntries.value = [];
         stats.total = 0; stats.verbose = 0; stats.debug = 0;
         stats.info = 0; stats.warning = 0; stats.error = 0; stats.fatal = 0;
         matchIndex.value = 0;
         error.value = '';
     }
 
-    function togglePause() {
-        paused.value = !paused.value;
-    }
+    function togglePause() { paused.value = !paused.value; }
+    function toggleAutoScroll() { autoScroll.value = !autoScroll.value; }
 
-    function toggleAutoScroll() {
-        autoScroll.value = !autoScroll.value;
-    }
+    const matchCount = computed(() => {
+        return searchText.value ? filteredEntries.value.length : 0;
+    });
 
-    /**
-     * 跳转到下一个匹配（越界循环）
-     */
+    const currentMatchEntry = computed(() => {
+        if (matchCount.value === 0) return null;
+        const idx = Math.min(matchIndex.value, matchCount.value - 1);
+        return filteredEntries.value[idx] || null;
+    });
+
     function nextMatch() {
         if (matchCount.value === 0) return;
         matchIndex.value = (matchIndex.value + 1) % matchCount.value;
     }
 
-    /**
-     * 跳转到上一个匹配（越界循环）
-     */
     function prevMatch() {
         if (matchCount.value === 0) return;
         matchIndex.value = (matchIndex.value - 1 + matchCount.value) % matchCount.value;
     }
 
+    // 公开暴露供 View 直接使用的最终列表：若无过滤，直接透传原数组
+    const displayEntries = computed(() => {
+        if (filterLevel.value !== 'all' || searchText.value) {
+            return filteredEntries.value;
+        }
+        return entries.value;
+    });
+
     return {
-        // 状态
         entries,
-        filteredEntries,
+        filteredEntries: displayEntries, // 视图层统一绑定此属性
         searchText,
         filterLevel,
         paused,
@@ -245,14 +238,11 @@ export function useLogcat() {
         matchIndex,
         loading,
         error,
-        // O(1) 累加统计
         stats,
-        // 常量
         LEVEL_LABELS,
-        // 计算属性
         matchCount,
         currentMatchEntry,
-        // 方法
+        rebuildFilteredEntries, // 暴露给外部调用（当参数改变时）
         startStream,
         stopStream,
         clear,

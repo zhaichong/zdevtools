@@ -17,9 +17,7 @@
     align-items: center;
     padding: 9px 12px;
     border-bottom: 1px solid var(--border);
-    background: rgba(10, 10, 10, 0.7);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: var(--bg);
     z-index: 10;
 }
 
@@ -110,16 +108,16 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 16px;
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--panel-strong);
 }
 
 .cause-panel.danger {
-    border-color: rgba(255, 107, 122, 0.42);
+    border-color: #fca5a5;
     background: var(--danger-bg);
 }
 
 .cause-panel.warning {
-    border-color: rgba(255, 209, 102, 0.34);
+    border-color: #fcd34d;
     background: var(--warning-bg);
 }
 
@@ -159,11 +157,11 @@
 .stack-item,
 .timeline-item,
 .file-item {
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 7px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
     padding: 8px;
-    background: rgba(0, 0, 0, 0.18);
-    color: var(--muted-strong);
+    background: var(--panel-strong);
+    color: var(--text);
     font-family: Consolas, "Cascadia Mono", monospace;
     font-size: 12px;
     white-space: pre-wrap;

@@ -40,10 +40,11 @@ const totalCount = computed(() => displayEntries.value.length);
 
 // ========== 渲染辅助 ==========
 function renderMessage(entry) {
+    const text = entry.parsed ? entry.message : entry.raw;
     if (props.searchText) {
-        return highlightText(entry.message, props.searchText);
+        return highlightText(text, props.searchText);
     }
-    return highlightText(entry.message, '');
+    return highlightText(text, '');
 }
 
 /**
@@ -88,7 +89,7 @@ function scrollToBottom() {
 }
 
 // 新日志到达时自动滚底（pause 或 用户手动滚离底部 时跳过）
-watch(() => props.entries.length, async () => {
+watch(displayEntries, async () => {
     if (!props.autoScroll) return;
     if (props.paused) return;
     if (userScrolled.value) return;
@@ -235,7 +236,7 @@ onBeforeUnmount(() => {});
       @scroll="onScroll"
     >
       <div
-        class="log-row flex items-center gap-1 px-3 border-b border-border-base border-opacity-20 hover:bg-white/5"
+        class="log-row flex items-center gap-1 px-3 border-b border-border-base border-opacity-20 hover:bg-black/5"
         :class="{
           'current-match': isCurrentMatch(entry.id),
           'log-row-error': entry.level === 'E' || entry.level === 'F',
@@ -244,17 +245,17 @@ onBeforeUnmount(() => {});
       >
         <!-- 未解析行 -->
         <template v-if="!entry.parsed">
-          <span class="text-text-tertiary flex-1 truncate">{{ entry.raw }}</span>
+          <span class="text-text-secondary flex-1 truncate" v-html="renderMessage(entry)"></span>
         </template>
 
         <!-- 已解析行：四列布局 -->
         <template v-else>
-          <span class="flex-none w-[130px] text-text-tertiary truncate">{{ entry.timestamp }}</span>
+          <span class="flex-none w-[130px] text-text-secondary truncate">{{ entry.timestamp }}</span>
           <span
             class="level-badge flex-none w-7 text-center rounded-sm font-bold text-[10px] leading-[18px]"
             :class="levelClass(entry.level)"
           >{{ entry.level }}</span>
-          <span class="flex-none max-w-[120px] text-text-secondary truncate" :title="entry.tag">{{ entry.tag }}</span>
+          <span class="flex-none max-w-[120px] text-text-primary truncate" :title="entry.tag">{{ entry.tag }}</span>
           <span class="flex-1 truncate text-text-primary pl-1" v-html="renderMessage(entry)"></span>
         </template>
       </div>

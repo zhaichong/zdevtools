@@ -14,7 +14,7 @@ defineProps({ stack: { type: Array, default: () => [] } });
 
 <style scoped>
 .stack-list { display: flex; flex-direction: column; gap: 4px; }
-.stack-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 4px 8px; background: rgba(0,0,0,0.2); border-radius: 4px; font-size: 11px; font-family: monospace; }
-.stack-fn { color: #aaa; overflow: hidden; text-overflow: ellipsis; }
-.stack-loc { color: #93c5fd; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+.stack-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 4px 8px; background: var(--panel-strong); border-radius: 4px; font-size: 11px; font-family: monospace; }
+.stack-fn { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.stack-loc { color: var(--accent); overflow: hidden; text-overflow: ellipsis; text-align: right; }
 </style>

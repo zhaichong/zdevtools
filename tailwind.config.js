@@ -15,9 +15,9 @@ module.exports = {
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', '"Liberation Mono"', '"Courier New"', 'monospace'],
       },
       boxShadow: {
-        'glow': '0 0 20px rgba(255, 255, 255, 0.05)',
-        'glow-accent': '0 0 20px rgba(88, 166, 255, 0.15)',
-        'subtle': '0 4px 20px -2px rgba(0, 0, 0, 0.4)',
+        'glow': 'none',
+        'glow-accent': 'none',
+        'subtle': 'none',
       },
       colors: {
         bg: {
@@ -32,12 +32,12 @@ module.exports = {
           primary: 'var(--text)',
           secondary: 'var(--muted-strong)',
           tertiary: 'var(--muted)',
-          disabled: 'rgba(255, 255, 255, 0.28)'
+          disabled: '#d1d5db'
         },
         accent: {
           DEFAULT: 'var(--accent)',
           hover: 'var(--accent-strong)',
-          subtle: 'rgba(88, 166, 255, 0.15)'
+          subtle: '#e5e7eb'
         },
         danger: 'var(--danger)',
         warning: 'var(--warning)',
