@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue';
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useCdpClient } from '@/shared/composables/useCdpClient.js';
 import { identifyProject } from '@/shared/composables/useProjectIdentify.js';
 import { runtimeSnapshotExpression } from '@/shared/utils/snapshot.js';
@@ -11,15 +11,15 @@ import { useReport } from './composables/useReport.js';
 import { useNetworkMonitor } from './composables/useNetworkMonitor.js';
 import { useConsoleStream } from './composables/useConsoleStream.js';
 import { useLogcat } from './composables/useLogcat.js';
-import RootStrip from './components/RootStrip.vue';
 import RailNav from './components/RailNav.vue';
 import DevToolsFrame from './components/DevToolsFrame.vue';
 import DetailDrawer from './components/DetailDrawer.vue';
-import NetworkPanel from './components/NetworkPanel.vue';
-import ConsolePanel from './components/ConsolePanel.vue';
 import DeviceInfoPanel from './components/DeviceInfoPanel.vue';
 import LogcatView from './components/LogcatView.vue';
 import RrwebPlayerModal from './components/RrwebPlayerModal.vue';
+import TimelinePanel from './components/TimelinePanel.vue';
+import ReplayPanel from './components/ReplayPanel.vue';
+import ReportPanel from './components/ReportPanel.vue';
 
 const params = new URLSearchParams(location.search);
 const config = reactive({
@@ -33,7 +33,7 @@ const config = reactive({
 
 const statusText = ref('连接中');
 const statusType = ref('busy');
-const activePanel = ref('network');
+const activePanel = ref('diagnosis');
 const selectedCauseId = ref('');
 const diagnosisOpen = ref(true);
 const report = ref(null);
@@ -56,11 +56,7 @@ let pollTimer = null;
 
 const targetMeta = computed(() => `${config.title || config.targetId} · ${shortUrl(config.url)}`);
 const hasActivatedDevtools = ref(false);
-watch(activePanel, (val) => {
-    if (val === 'devtools') {
-        setTimeout(() => { hasActivatedDevtools.value = true; }, 100);
-    }
-}, { immediate: true });
+const embeddedDevtoolsOpen = ref(false);
 const devtoolsUrl = computed(() => {
     if (!hasActivatedDevtools.value) return '';
     const wsUrl = `${location.host}/ws-proxy/${config.port}/devtools/page/${config.targetId}`;
@@ -69,6 +65,7 @@ const devtoolsUrl = computed(() => {
 
 const causes = computed(() => report.value?.causes || []);
 const breadcrumbs = computed(() => report.value?.breadcrumbs || []);
+const reportMarkdown = computed(() => buildMarkdown(report.value) || '');
 const selectedCause = computed(() =>
     causes.value.find(c => c.id === selectedCauseId.value) || causes.value[0] || null
 );
@@ -130,6 +127,7 @@ async function collect({ reconnect }) {
             cdpClient.close();
             await cdpClient.connect();
             await cdpClient.enable();
+            await window.electronAPI?.clearRrwebChunks?.(config.targetId);
             
             // Set up rrweb transport binding
             await cdpClient.send('Runtime.addBinding', { name: '__rrweb_emit' });
@@ -176,10 +174,13 @@ function onRefresh() {
     relatedCache.clear();
     collect({ reconnect: false });
 }
-function onOpenDevtools() { 
-    const wsUrl = `${location.host}/ws-proxy/${config.port}/devtools/page/${config.targetId}`;
-    const realUrl = `/devtools/inspector.html?ws=${wsUrl}&theme=dark`;
-    window.open(realUrl, '_blank'); 
+function onActivateEmbeddedDevtools() {
+    hasActivatedDevtools.value = true;
+    embeddedDevtoolsOpen.value = true;
+}
+function onSelectPanel(panel) {
+    activePanel.value = panel;
+    if (panel === 'devtools') onActivateEmbeddedDevtools();
 }
 async function onCopyMarkdown() {
     await navigator.clipboard.writeText(buildMarkdown(report.value) || '');
@@ -229,13 +230,10 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="h-tools">
-                <button class="btn ghost text-accent border border-accent hover:bg-accent hover:bg-opacity-10 shadow-sm" type="button" @click="showRrwebModal = true">🎥 场景回放</button>
                 <label class="btn secondary upload-btn" title="上传 .map 文件或选择 dist 目录">
                     上传 SourceMap
                     <input type="file" multiple webkitdirectory accept=".map,application/json" @change="onSourceMapUpload">
                 </label>
-                <button class="btn secondary" type="button" @click="onCopyMarkdown">复制报告</button>
-                <button class="btn ghost" type="button" @click="onOpenDevtools">独立 DevTools</button>
                 <span class="status-badge" :class="statusType">{{ statusText }}</span>
             </div>
         </header>
@@ -244,42 +242,23 @@ onBeforeUnmount(() => {
             <RailNav
                 :active-panel="activePanel"
                 :counts="counts"
-                :diagnosis-open="diagnosisOpen"
-                @select-panel="activePanel = $event"
-                @toggle-diagnosis="diagnosisOpen = !diagnosisOpen"
+                @select-panel="onSelectPanel"
             />
             <section class="panel-stage">
                 <div class="panel-area">
-                    <NetworkPanel
-                        v-show="activePanel === 'network'"
-                        :requests="networkMonitor.filteredRequests.value"
-                        :stats="networkMonitor.stats.value"
-                        :filter-type="networkMonitor.filterType.value"
-                        :search-text="networkMonitor.searchText.value"
-                        :paused="networkMonitor.paused.value"
-                        :on-fetch-body="networkMonitor.fetchResponseBody"
-                        @update:filter-type="networkMonitor.filterType.value = $event"
-                        @update:search-text="networkMonitor.searchText.value = $event"
-                        @toggle-pause="networkMonitor.togglePause()"
-                        @clear="networkMonitor.clear()"
-                    />
-                    <ConsolePanel
-                        v-show="activePanel === 'console'"
-                        :entries="consoleStream.filteredEntries.value"
-                        :stats="consoleStream.stats.value"
-                        :filter-level="consoleStream.filterLevel.value"
-                        :search-text="consoleStream.searchText.value"
-                        :paused="consoleStream.paused.value"
-                        :level-labels="consoleStream.LEVEL_LABELS"
-                        :on-execute="consoleStream.execute"
-                        @update:filter-level="consoleStream.filterLevel.value = $event"
-                        @update:search-text="consoleStream.searchText.value = $event"
-                        @toggle-pause="consoleStream.togglePause()"
-                        @clear="consoleStream.clear()"
-                    />
                     <DevToolsFrame
-                        :class="{ 'off-screen': activePanel !== 'devtools' }"
+                        :class="{ 'off-screen': activePanel !== 'devtools' || !embeddedDevtoolsOpen }"
                         :src="devtoolsUrl"
+                    />
+                    <TimelinePanel
+                        v-show="activePanel === 'timeline'"
+                        :items="breadcrumbs"
+                        :causes="causes"
+                    />
+                    <ReplayPanel
+                        v-show="activePanel === 'replay'"
+                        :breadcrumbs="breadcrumbs"
+                        @open-replay="showRrwebModal = true"
                     />
                     <LogcatView
                         v-show="activePanel === 'logs'"
@@ -309,6 +288,12 @@ onBeforeUnmount(() => {
                         :snapshot="snapshot"
                         :profile="profile"
                         :connected="cdpClient.connected.value"
+                    />
+                    <ReportPanel
+                        v-show="activePanel === 'report'"
+                        :report="report"
+                        :markdown="reportMarkdown"
+                        @copy-markdown="onCopyMarkdown"
                     />
                     <DetailDrawer
                         v-show="activePanel === 'diagnosis'"

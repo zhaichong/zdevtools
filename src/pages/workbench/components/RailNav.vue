@@ -1,17 +1,18 @@
 <script setup>
 defineProps({
-    activePanel: { type: String, default: 'network' },
+    activePanel: { type: String, default: 'diagnosis' },
     counts: { type: Object, default: () => ({}) }
 });
 defineEmits(['select-panel']);
 
 const panels = [
-    { id: 'network', label: 'Network', icon: '⇄', title: 'Real-time network requests' },
-    { id: 'console', label: 'Console', icon: '>', title: 'Real-time console output' },
-    { id: 'devtools', label: 'DevTools', icon: '⚙', title: 'Chrome DevTools (deep inspection)' },
-    { id: 'logs', label: 'Logs', icon: '≡', title: 'Android logcat' },
-    { id: 'device', label: 'Device', icon: '▣', title: 'Device & bridge info' },
-    { id: 'diagnosis', label: 'Diagnosis', icon: '◉', title: 'Root cause analysis (Sentry-style)' }
+    { id: 'diagnosis', label: '诊断', icon: 'Dx', title: '根因聚合与修复线索', countKey: 'causes' },
+    { id: 'timeline', label: '时间轴', icon: 'Tl', title: '错误前后的行为、请求、日志证据链', countKey: 'timeline' },
+    { id: 'replay', label: '回放', icon: 'Rv', title: '用户操作场景回放' },
+    { id: 'device', label: '设备', icon: 'Dv', title: '设备、WebView、Bridge 与运行环境' },
+    { id: 'logs', label: 'logcat', icon: 'Lg', title: 'Android 与 WebView 相关日志', countKey: 'logcat' },
+    { id: 'report', label: '报告', icon: 'Rp', title: '复制和导出排查证据' },
+    { id: 'devtools', label: 'DevTools', icon: 'DT', title: 'Chrome DevTools 深度检查' }
 ];
 </script>
 
@@ -28,63 +29,70 @@ const panels = [
         >
             <span class="rail-icon">{{ panel.icon }}</span>
             <span class="rail-label">{{ panel.label }}</span>
-            <small v-if="panel.id === 'diagnosis' && counts.causes" class="rail-count">{{ counts.causes }}</small>
+            <small v-if="panel.countKey && counts[panel.countKey]" class="rail-count">{{ counts[panel.countKey] }}</small>
         </button>
     </nav>
 </template>
 
 <style scoped>
-.rail-nav { 
-    display: flex; 
-    flex-direction: column; 
-    gap: 6px; 
-    padding: 10px 8px; 
-    width: 80px; 
-    background: var(--panel-soft); 
-    border-right: 1px solid var(--border); 
-    overflow-y: auto; 
+.rail-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 8px;
+    width: 80px;
+    background: var(--panel-soft);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
 }
-.rail-item { 
+.rail-item {
     position: relative;
-    display: flex; 
-    flex-direction: column; 
-    align-items: center; 
-    gap: 4px; 
-    padding: 10px 4px; 
-    border: none; 
-    background: transparent; 
-    color: var(--muted); 
-    cursor: pointer; 
-    border-radius: 8px; 
-    font-size: 11px; 
-    transition: all 0.2s ease; 
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 4px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    border-radius: 8px;
+    font-size: 11px;
+    transition: background-color 0.15s ease, color 0.15s ease;
 }
-.rail-item:hover { 
-    background: var(--panel); 
-    color: var(--text); 
+.rail-item:hover {
+    background: var(--panel);
+    color: var(--text);
 }
-.rail-item.active { 
-    background: var(--panel-strong); 
-    color: var(--accent); 
+.rail-item.active {
+    background: var(--panel-strong);
+    color: var(--accent);
     font-weight: 600;
 }
-.rail-icon { 
-    font-size: 18px; 
-    line-height: 1; 
+.rail-icon {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    border: 1px solid currentColor;
+    font-size: 10px;
+    line-height: 1;
+    font-family: Consolas, "Cascadia Mono", monospace;
 }
-.rail-label { 
-    font-size: 11px; 
-    white-space: nowrap; 
+.rail-label {
+    font-size: 11px;
+    white-space: nowrap;
 }
-.rail-count { 
+.rail-count {
     position: absolute;
     top: 4px;
     right: 8px;
-    background: var(--danger); 
-    color: #fff; 
-    border-radius: 10px; 
-    padding: 0 5px; 
-    font-size: 9px; 
-    font-weight: 700; 
+    background: var(--danger);
+    color: #fff;
+    border-radius: 10px;
+    padding: 0 5px;
+    font-size: 9px;
+    font-weight: 700;
 }
 </style>

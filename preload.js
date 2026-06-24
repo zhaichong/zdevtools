@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     restartAdb: () => ipcRenderer.invoke('restart-adb'),
     saveRrwebChunk: (targetId, chunk) => ipcRenderer.invoke('save-rrweb-chunk', targetId, chunk),
+    clearRrwebChunks: (targetId) => ipcRenderer.invoke('clear-rrweb-chunks', targetId),
     loadRrwebChunks: (targetId) => ipcRenderer.invoke('load-rrweb-chunks', targetId),
 
     // 在线更新相关

@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue';
+import { shortUrl } from '@/shared/utils/format.js';
 
 const props = defineProps({
   config: { type: Object, default: () => ({}) },
@@ -7,52 +8,113 @@ const props = defineProps({
   profile: { type: Object, default: () => ({}) },
   connected: { type: Boolean, default: false }
 });
+
+const androidVersion = computed(() => {
+  if (!props.snapshot?.userAgent) return '-';
+  const match = props.snapshot.userAgent.match(/Android\s+([^\s;]+)/i);
+  return match ? `Android ${match[1]}` : '-';
+});
+
+const viewport = computed(() => {
+  if (!props.snapshot) return '-';
+  return `${props.snapshot.screenWidth || '-'} x ${props.snapshot.screenHeight || '-'}`;
+});
+
+const dpr = computed(() => props.snapshot?.devicePixelRatio ? `DPR ${props.snapshot.devicePixelRatio}` : '-');
+const deviceName = computed(() => props.config.model || props.config.deviceId || '-');
+const targetUrl = computed(() => props.snapshot?.href || props.config.url || '-');
+
+const healthyGlobals = computed(() => {
+  const globals = props.snapshot?.globals || {};
+  return Object.entries(globals).filter(([, value]) => Boolean(value));
+});
+
+const missingGlobals = computed(() => {
+  const globals = props.snapshot?.globals || {};
+  return Object.entries(globals).filter(([, value]) => !value);
+});
+
+const envText = computed(() => [
+  `设备：${deviceName.value}`,
+  `系统：${androidVersion.value}`,
+  `视口：${viewport.value} / ${dpr.value}`,
+  `项目：${props.profile?.label || props.profile?.id || '-'}`,
+  `页面：${targetUrl.value}`,
+  `CDP：${props.connected ? '已连接' : '未连接'}`,
+  `readyState：${props.snapshot?.readyState || '-'}`,
+  `DOM 节点：${props.snapshot?.domNodes ?? '-'}`
+].join('\n'));
+
+async function copyEnvironment() {
+  await navigator.clipboard.writeText(envText.value);
+}
 </script>
 
 <template>
-  <div class="flex flex-col h-full overflow-auto bg-bg-base p-4 space-y-4">
-    <!-- Connection -->
-    <div class="card !rounded-lg p-4 flex items-center gap-3">
-      <div class="status-dot" :class="connected ? 'online' : 'offline'"></div>
+  <div class="device-page">
+    <header class="device-header">
       <div>
-        <h3 class="text-sm font-bold text-text-primary m-0">{{ connected ? 'Connected' : 'Disconnected' }}</h3>
-        <p class="text-xs text-text-tertiary m-0 mt-0.5">CDP WebSocket (Chrome DevTools Protocol)</p>
+        <h2>设备与运行环境</h2>
+        <p>只展示排查 WebView 必须看的关键状态。</p>
       </div>
-    </div>
+      <span class="device-status" :class="{ online: connected }">
+        {{ connected ? '已连接' : '未连接' }}
+      </span>
+    </header>
 
-    <!-- Target -->
-    <div class="card !rounded-lg p-4">
-      <h4 class="text-xs font-bold text-text-primary m-0 mb-3 uppercase tracking-wider">Target</h4>
-      <div class="space-y-2.5 text-sm">
-        <div class="flex justify-between"><span class="text-text-tertiary">Title</span><span class="text-text-primary font-medium truncate ml-3">{{ config.title || '-' }}</span></div>
-        <div class="flex justify-between"><span class="text-text-tertiary">URL</span><span class="text-text-secondary font-mono text-xs truncate ml-3 max-w-[200px]">{{ config.url || '-' }}</span></div>
-        <div class="flex justify-between"><span class="text-text-tertiary">Device</span><span class="text-text-primary">{{ config.model || config.deviceId || '-' }}</span></div>
+    <section class="device-summary">
+      <div class="summary-cell">
+        <span>设备</span>
+        <strong>{{ deviceName }}</strong>
       </div>
-    </div>
+      <div class="summary-cell">
+        <span>系统</span>
+        <strong>{{ androidVersion }}</strong>
+      </div>
+      <div class="summary-cell">
+        <span>视口</span>
+        <strong>{{ viewport }}</strong>
+      </div>
+      <div class="summary-cell">
+        <span>像素比</span>
+        <strong>{{ dpr }}</strong>
+      </div>
+    </section>
 
-    <!-- Profile -->
-    <div class="card !rounded-lg p-4">
-      <h4 class="text-xs font-bold text-text-primary m-0 mb-3 uppercase tracking-wider">Project</h4>
-      <div class="space-y-2.5 text-sm">
-        <div class="flex justify-between"><span class="text-text-tertiary">ID</span><span class="text-text-primary font-mono text-xs">{{ profile.id || '-' }}</span></div>
-        <div class="flex justify-between"><span class="text-text-tertiary">Label</span><span class="text-text-primary">{{ profile.label || '-' }}</span></div>
-      </div>
-    </div>
+    <section class="device-grid">
+      <article class="device-panel">
+        <div class="panel-title">
+          <h3>WebView Target</h3>
+          <span>{{ profile.label || profile.id || '未知项目' }}</span>
+        </div>
+        <dl class="kv-list">
+          <div><dt>Title</dt><dd>{{ config.title || '-' }}</dd></div>
+          <div><dt>URL</dt><dd class="mono" :title="targetUrl">{{ shortUrl(targetUrl) }}</dd></div>
+          <div><dt>项目</dt><dd>{{ profile.id || '-' }}</dd></div>
+          <div><dt>页面状态</dt><dd>{{ snapshot?.readyState || '-' }}</dd></div>
+          <div><dt>Vue Root</dt><dd>{{ snapshot?.hasVueRoot ? 'Found' : 'Not found' }}</dd></div>
+          <div><dt>DOM 节点</dt><dd>{{ snapshot?.domNodes ?? '-' }}</dd></div>
+        </dl>
+      </article>
 
-    <!-- Snapshot -->
-    <div v-if="snapshot" class="card !rounded-lg p-4">
-      <h4 class="text-xs font-bold text-text-primary m-0 mb-3 uppercase tracking-wider">Snapshot</h4>
-      <div class="space-y-2.5 text-sm">
-        <div class="flex justify-between"><span class="text-text-tertiary">readyState</span><span class="text-text-primary font-mono">{{ snapshot.readyState }}</span></div>
-        <div class="flex justify-between"><span class="text-text-tertiary">DOM Nodes</span><span class="text-text-primary font-mono">{{ snapshot.domNodes }}</span></div>
-        <div class="flex justify-between"><span class="text-text-tertiary">Vue Root</span><span class="text-text-primary">{{ snapshot.hasVueRoot ? '✓ Found' : '✗ Not found' }}</span></div>
-      </div>
-      <div v-if="snapshot.globals" class="mt-3 flex flex-wrap gap-1.5">
-        <span v-for="(val, key) in snapshot.globals" :key="key"
-              class="pill text-2xs" :class="val ? 'bg-success-bg text-success border border-success-border/20' : 'bg-danger-bg text-danger border border-danger-border/20'">
-          {{ key }}: {{ val ? 'yes' : 'no' }}
-        </span>
-      </div>
-    </div>
+      <article class="device-panel">
+        <div class="panel-title">
+          <h3>Bridge & Globals</h3>
+          <span>{{ healthyGlobals.length }} 可用 / {{ missingGlobals.length }} 缺失</span>
+        </div>
+        <div class="global-group">
+          <span v-for="[key] in healthyGlobals" :key="key" class="global-chip good">{{ key }} yes</span>
+          <span v-for="[key] in missingGlobals" :key="key" class="global-chip bad">{{ key }} no</span>
+          <div v-if="!healthyGlobals.length && !missingGlobals.length" class="empty-mini">暂无全局变量快照。</div>
+        </div>
+      </article>
+    </section>
+
+    <footer class="device-footer">
+      <span :class="['footer-pill', connected ? 'good' : 'bad']">CDP {{ connected ? 'connected' : 'lost' }}</span>
+      <span class="footer-pill">SourceMap 按需上传</span>
+      <span class="footer-pill">logcat 独立面板</span>
+      <button class="btn primary" type="button" @click="copyEnvironment">复制环境信息</button>
+    </footer>
   </div>
 </template>

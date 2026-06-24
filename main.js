@@ -200,6 +200,17 @@ ipcMain.handle('save-rrweb-chunk', async (event, targetId, chunk) => {
     }
 });
 
+ipcMain.handle('clear-rrweb-chunks', async (event, targetId) => {
+    try {
+        const file = path.join(app.getPath('userData'), 'rrweb', `${targetId}.jsonl`);
+        if (fs.existsSync(file)) fs.unlinkSync(file);
+        return true;
+    } catch (e) {
+        console.error('Failed to clear rrweb chunks:', e);
+        return false;
+    }
+});
+
 ipcMain.handle('load-rrweb-chunks', async (event, targetId) => {
     try {
         const file = path.join(app.getPath('userData'), 'rrweb', `${targetId}.jsonl`);

@@ -119,7 +119,7 @@ export function useLogcat() {
 
     watch([filterLevel, searchText], () => {
         rebuildFilteredEntries();
-    });
+    }, { flush: 'sync' });
 
     // 状态流 API 绑定
     let cleanupData = null;

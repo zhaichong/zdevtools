@@ -29,7 +29,21 @@ export function useProbe(cdpClient) {
         // Then inject our probe
         await evaluate(`(${probeInstaller.toString()})(${JSON.stringify(BRIDGE_METHODS)})`);
         // Start rrweb recording
-        await evaluate(`if(window.rrweb && !window.__rrweb_started__) { window.__rrweb_started__ = true; window.rrweb.record({ emit(event) { if(window.__rrweb_emit) window.__rrweb_emit(JSON.stringify(event)); } }); }`);
+        await evaluate(`
+            if (window.rrweb) {
+                if (window.__rrweb_stop__) window.__rrweb_stop__();
+                window.__rrweb_stop__ = window.rrweb.record({
+                    inlineImages: true,
+                    recordCanvas: true,
+                    collectFonts: true,
+                    sampling: { canvas: 2 },
+                    emit(event) {
+                        if (window.__rrweb_emit) window.__rrweb_emit(JSON.stringify(event));
+                    }
+                });
+                window.__rrweb_started__ = true;
+            }
+        `);
     }
 
     async function pollProbe() {
