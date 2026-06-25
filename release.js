@@ -2,6 +2,23 @@ const prompts = require('prompts');
 const { execSync } = require('child_process');
 const fs = require('fs');
 
+function gitEnv() {
+    const env = { ...process.env };
+    for (const key of ['ALL_PROXY', 'all_proxy', 'HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy']) {
+        if (/^socks5?:\/\/127\.0\.0\.1:(7891|17891)$/i.test(env[key] || '')) {
+            delete env[key];
+        }
+    }
+    env.NO_PROXY = [env.NO_PROXY, 'github.com', '.github.com']
+        .filter(Boolean)
+        .join(',');
+    return env;
+}
+
+function execGit(command, options = {}) {
+    return execSync(command, { ...options, env: gitEnv() });
+}
+
 function getNextVersion(version, bumpType) {
     const parts = version.split('.').map(Number);
     if (parts.length !== 3 || parts.some(part => !Number.isInteger(part))) {
@@ -24,7 +41,7 @@ function getNextVersion(version, bumpType) {
 
 function localTagExists(tagName) {
     try {
-        execSync(`git rev-parse -q --verify refs/tags/${tagName}`, { stdio: 'ignore' });
+        execGit(`git rev-parse -q --verify refs/tags/${tagName}`, { stdio: 'ignore' });
         return true;
     } catch (error) {
         return false;
@@ -33,7 +50,7 @@ function localTagExists(tagName) {
 
 function remoteTagExists(tagName) {
     try {
-        execSync(`git ls-remote --exit-code --tags origin refs/tags/${tagName}`, { stdio: 'ignore' });
+        execGit(`git ls-remote --exit-code --tags origin refs/tags/${tagName}`, { stdio: 'ignore' });
         return true;
     } catch (error) {
         if (error.status === 2) return false;
@@ -104,7 +121,7 @@ async function main() {
         }
 
         // 检查是否有未提交的代码
-        const status = execSync('git status --porcelain').toString().trim();
+        const status = execGit('git status --porcelain').toString().trim();
         if (status) {
             console.log('\n⚠️ 发现有未提交的代码修改：');
             console.log(status);
@@ -122,8 +139,8 @@ async function main() {
             }
 
             console.log('⏳ 正在提交代码...');
-            execSync('git add .', { stdio: 'inherit' });
-            execSync(`git commit -m "chore: prepare for release v${versionTarget}"`, { stdio: 'inherit' });
+            execGit('git add .', { stdio: 'inherit' });
+            execGit(`git commit -m "chore: prepare for release v${versionTarget}"`, { stdio: 'inherit' });
         }
 
         console.log('\n⏳ 正在更新版本并创建 Git Tag...');
@@ -132,7 +149,7 @@ async function main() {
 
         console.log('⏳ 正在推送代码和 Tag 到 GitHub...');
         // 将刚才的 commit 和 tag 一起推送到远端，触发 GitHub Actions
-        execSync('git push origin HEAD --follow-tags', { stdio: 'inherit' });
+        execGit('git push origin HEAD --follow-tags', { stdio: 'inherit' });
 
         console.log('\n✅ 发布成功！');
         console.log('🚀 GitHub Actions 已经开始为您在云端打包发布。');

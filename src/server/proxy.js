@@ -4,7 +4,7 @@ const { createProxyServer } = require('http-proxy');
  * 创建 WebSocket 代理并返回 proxy 实例
  */
 function createWsProxy() {
-    const proxy = createProxyServer({ ws: true, changeOrigin: true });
+    const proxy = createProxyServer({ ws: true, changeOrigin: true, timeout: 0, proxyTimeout: 0 });
 
     proxy.on('error', (err, req, res) => {
         console.error('[ws-proxy] error:', err.message);
@@ -16,6 +16,12 @@ function createWsProxy() {
 
     proxy.on('proxyReqWs', (proxyReq) => {
         proxyReq.removeHeader('origin');
+    });
+
+    proxy.on('open', (proxySocket) => {
+        proxySocket.setKeepAlive(true, 30000);
+        proxySocket.on('close', () => console.log('[ws-proxy] upstream closed'));
+        proxySocket.on('error', err => console.error('[ws-proxy] upstream error:', err.message));
     });
 
     return proxy;
@@ -31,7 +37,11 @@ function mountWsUpgrade(server, proxy) {
         const match = req.url.match(/^\/ws-proxy\/(\d+)(.*)/);
         if (match) {
             const port = match[1];
-            req.url = match[2];
+            const path = match[2];
+            socket.setKeepAlive(true, 30000);
+            socket.on('close', () => console.log(`[ws-proxy] client closed ${port}${path}`));
+            socket.on('error', err => console.error('[ws-proxy] client error:', err.message));
+            req.url = path;
             proxy.ws(req, socket, head, { target: `http://127.0.0.1:${port}` });
         } else {
             socket.destroy();
