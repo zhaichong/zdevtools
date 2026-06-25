@@ -19,6 +19,15 @@ function execGit(command, options = {}) {
     return execSync(command, { ...options, env: gitEnv() });
 }
 
+function assertStableGithubRelease(pkg) {
+    const publishers = Array.isArray(pkg.build?.publish) ? pkg.build.publish : [];
+    const githubPublisher = publishers.find(item => item?.provider === 'github');
+    if (!githubPublisher) return;
+    if (githubPublisher.releaseType !== 'release') {
+        throw new Error('package.json build.publish GitHub releaseType must be "release".');
+    }
+}
+
 function getNextVersion(version, bumpType) {
     const parts = version.split('.').map(Number);
     if (parts.length !== 3 || parts.some(part => !Number.isInteger(part))) {
@@ -60,6 +69,7 @@ function remoteTagExists(tagName) {
 
 async function main() {
     const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+    assertStableGithubRelease(pkg);
     const currentVersion = pkg.version;
 
     console.log(`📦 当前版本: v${currentVersion}`);
@@ -140,7 +150,7 @@ async function main() {
 
             console.log('⏳ 正在提交代码...');
             execGit('git add .', { stdio: 'inherit' });
-            execGit(`git commit -m "chore: prepare for release v${versionTarget}"`, { stdio: 'inherit' });
+            execGit(`git commit -m "chore: prepare for release v${targetVersion}"`, { stdio: 'inherit' });
         }
 
         console.log('\n⏳ 正在更新版本并创建 Git Tag...');
