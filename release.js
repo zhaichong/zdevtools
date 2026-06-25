@@ -2,6 +2,45 @@ const prompts = require('prompts');
 const { execSync } = require('child_process');
 const fs = require('fs');
 
+function getNextVersion(version, bumpType) {
+    const parts = version.split('.').map(Number);
+    if (parts.length !== 3 || parts.some(part => !Number.isInteger(part))) {
+        throw new Error(`Invalid package version: ${version}`);
+    }
+
+    if (bumpType === 'patch') parts[2] += 1;
+    if (bumpType === 'minor') {
+        parts[1] += 1;
+        parts[2] = 0;
+    }
+    if (bumpType === 'major') {
+        parts[0] += 1;
+        parts[1] = 0;
+        parts[2] = 0;
+    }
+
+    return parts.join('.');
+}
+
+function localTagExists(tagName) {
+    try {
+        execSync(`git rev-parse -q --verify refs/tags/${tagName}`, { stdio: 'ignore' });
+        return true;
+    } catch (error) {
+        return false;
+    }
+}
+
+function remoteTagExists(tagName) {
+    try {
+        execSync(`git ls-remote --exit-code --tags origin refs/tags/${tagName}`, { stdio: 'ignore' });
+        return true;
+    } catch (error) {
+        if (error.status === 2) return false;
+        throw new Error(`Unable to check remote tag ${tagName}. Check network/proxy and try again.`);
+    }
+}
+
 async function main() {
     const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
     const currentVersion = pkg.version;
@@ -42,10 +81,14 @@ async function main() {
         versionTarget = customRes.version;
     }
 
+    const targetVersion = ['patch', 'minor', 'major'].includes(versionTarget)
+        ? getNextVersion(currentVersion, versionTarget)
+        : versionTarget;
+
     const confirm = await prompts({
         type: 'confirm',
         name: 'value',
-        message: `确定要升级到 [${versionTarget}] 并在 GitHub 触发自动构建吗？`,
+        message: `确定要升级到 [${targetVersion}] 并在 GitHub 触发自动构建吗？`,
         initial: true
     });
 
@@ -55,6 +98,11 @@ async function main() {
     }
 
     try {
+        const tagName = `v${targetVersion}`;
+        if (localTagExists(tagName) || remoteTagExists(tagName)) {
+            throw new Error(`Tag ${tagName} already exists. Choose a newer custom version.`);
+        }
+
         // 检查是否有未提交的代码
         const status = execSync('git status --porcelain').toString().trim();
         if (status) {
