@@ -48,7 +48,8 @@
       {
         "provider": "github",
         "owner": "zhaichong",
-        "repo": "zdevtools"
+        "repo": "zdevtools",
+        "releaseType": "release"
       }
     ]
   },
