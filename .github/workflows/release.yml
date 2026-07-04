@@ -3,8 +3,8 @@ name: Build & Release
 on:
   push:
     tags:
-      - 'v*'           # 推送 v1.0.4 等 tag 时触发
-  workflow_dispatch:    # 也支持手动触发（在 GitHub Actions 页面点击）
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
   release:
@@ -19,7 +19,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20.20.2'
           cache: 'npm'
 
       - name: Install dependencies
@@ -32,4 +32,3 @@ jobs:
         run: npx electron-builder --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # electron-builder 自动读取 GH_TOKEN 发布到 GitHub Releases
