@@ -252,13 +252,16 @@ async function processDevice(baseDevice, portMap, existingForwards) {
         if (!targetResult.ok) {
             processInfo.diagnostics.push(`Failed to read /json/list: ${targetResult.error || targetResult.statusCode}`);
         } else {
-            processInfo.targets = (targetResult.data || []).map(target => ({
-                id: target.id, type: target.type, title: target.title, url: target.url,
-                description: target.description, faviconUrl: target.faviconUrl,
-                devtoolsFrontendUrl: target.devtoolsFrontendUrl,
-                webSocketDebuggerUrl: target.webSocketDebuggerUrl,
-                localPort: forward.localPort, deviceId: device.id, processName: socket
-            }));
+            processInfo.targets = (targetResult.data || [])
+                .filter(target => ['page', 'webview'].includes(target.type))
+                .filter(target => target.url || target.title)
+                .map(target => ({
+                    id: target.id, type: target.type, title: target.title, url: target.url,
+                    description: target.description, faviconUrl: target.faviconUrl,
+                    devtoolsFrontendUrl: target.devtoolsFrontendUrl,
+                    webSocketDebuggerUrl: target.webSocketDebuggerUrl,
+                    localPort: forward.localPort, deviceId: device.id, processName: socket
+                }));
         }
         return processInfo;
     }));
@@ -344,7 +347,7 @@ async function startLogcatStream(deviceId, webContents) {
     // Stop existing stream if any
     stopLogcatStream(deviceId);
     
-    const args = ['-s', deviceId, 'logcat', '-v', 'time'];
+    const args = ['-s', deviceId, 'logcat', '-v', 'time', '-T', '1'];
     const child = spawn(getAdbPath(), args, {
         windowsHide: true
     });
@@ -365,6 +368,13 @@ async function startLogcatStream(deviceId, webContents) {
             if (lines.length > 0 && !webContents.isDestroyed()) {
                 webContents.send('logcat-data', lines);
             }
+        }
+    });
+
+    child.stderr.on('data', (chunk) => {
+        const message = chunk.toString().trim();
+        if (message && !webContents.isDestroyed()) {
+            webContents.send('logcat-error', message);
         }
     });
 

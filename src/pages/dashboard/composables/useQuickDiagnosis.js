@@ -158,16 +158,6 @@ export function useQuickDiagnosis() {
         };
     }
 
-    async function fetchLogcat(deviceId) {
-        try {
-            const res = await fetch(`/api/logcat?deviceId=${encodeURIComponent(deviceId)}`);
-            const d = await res.json();
-            return d.lines || [];
-        } catch (e) {
-            return [`logcat failed: ${e.message}`];
-        }
-    }
-
     async function runDiagnosis(device, proc, target) {
         loading.value = true;
         diagnosisDetail.value = { loading: true, hint: `${device.model || device.id} · ${target.title || target.url || target.id}`, message: '正在连接 CDP 并采集页面错误...' };
@@ -178,7 +168,7 @@ export function useQuickDiagnosis() {
             await client.enable();
             await delay(2600);
             const snapshot = await client.evaluate(runtimeSnapshotExpression()) || {};
-            const logcat = await fetchLogcat(device.id);
+            const logcat = [];
             const profile = identifyProject(target.url, snapshot, client.events.value);
             const diagnosis = buildQuickDiagnosis({ device, proc, target, snapshot, profile, events: client.events.value, logcat });
             const key = `${target.deviceId || ''}:${proc.localPort}:${target.id}`;

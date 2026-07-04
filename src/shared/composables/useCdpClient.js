@@ -137,8 +137,18 @@ export function useCdpClient(port, targetId, options = {}) {
     function send(method, params = {}) {
         const msgId = id++;
         return new Promise((resolve, reject) => {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                reject(new Error('CDP connection is not open'));
+                return;
+            }
             pending.set(msgId, { resolve, reject });
-            ws.send(JSON.stringify({ id: msgId, method, params }));
+            try {
+                ws.send(JSON.stringify({ id: msgId, method, params }));
+            } catch (error) {
+                pending.delete(msgId);
+                reject(error);
+                return;
+            }
             setTimeout(() => {
                 if (pending.has(msgId)) {
                     pending.delete(msgId);

@@ -35,7 +35,12 @@ export function runtimeSnapshotExpression() {
             let vueRoute = null;
             try {
                 const route = vueApp?.config?.globalProperties?.$route || vue2Root?.$route;
-                if (route) vueRoute = { path: route.path, name: route.name || '', query: Object.keys(route.query || {}).join(','), params: Object.keys(route.params || {}).join(',') };
+                if (route) vueRoute = {
+                    path: route.path == null ? '' : String(route.path),
+                    name: route.name == null ? '' : String(route.name),
+                    query: Object.keys(route.query || {}).join(','),
+                    params: Object.keys(route.params || {}).join(',')
+                };
             } catch (e) {}
 
             // 内存信息（Chrome 专属）
@@ -60,7 +65,12 @@ export function runtimeSnapshotExpression() {
             let globalVarCount = 0;
             try { globalVarCount = Object.keys(window).length; } catch (e) {}
 
-            return {
+            let localStorageKeys = [];
+            let sessionStorageKeys = [];
+            try { localStorageKeys = Object.keys(window.localStorage || {}); } catch (e) {}
+            try { sessionStorageKeys = Object.keys(window.sessionStorage || {}); } catch (e) {}
+
+            const snapshot = {
                 href: location.href,
                 title: document.title,
                 hash: location.hash,
@@ -84,10 +94,11 @@ export function runtimeSnapshotExpression() {
                 globals: { android: !!window.android, websdk: !!window.websdk, zhbfbed: !!window.zhbfbed, zhctbed: !!window.zhctbed, globalConfig: !!window.globalConfig, mattressConfig: !!window.MATTRESS_API_CONFIG, mySdk: !!window.MySDK, log: typeof window.log === 'function' },
                 androidMethods,
                 storage: { local: pickStorage(window.localStorage), session: pickStorage(window.sessionStorage) },
-                localStorageKeys: Object.keys(window.localStorage || {}),
-                sessionStorageKeys: Object.keys(window.sessionStorage || {}),
+                localStorageKeys,
+                sessionStorageKeys,
                 resourceFailures: performance.getEntriesByType('resource').filter(item => item.transferSize === 0 && !/^data:/.test(item.name)).slice(-30).map(item => ({ name: item.name, initiatorType: item.initiatorType, duration: Math.round(item.duration) })),
                 failedMedia
             };
+            return JSON.parse(JSON.stringify(snapshot));
         })()`;
 }

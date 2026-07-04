@@ -3,7 +3,7 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useCdpClient } from '@/shared/composables/useCdpClient.js';
 import { identifyProject } from '@/shared/composables/useProjectIdentify.js';
 import { runtimeSnapshotExpression } from '@/shared/utils/snapshot.js';
-import { shortUrl, delay } from '@/shared/utils/format.js';
+import { delay } from '@/shared/utils/format.js';
 import { useProbe } from './composables/useProbe.js';
 import { useRootCauses } from './composables/useRootCauses.js';
 import { useSourceMap } from './composables/useSourceMap.js';
@@ -11,6 +11,7 @@ import { useReport } from './composables/useReport.js';
 import { useNetworkMonitor } from './composables/useNetworkMonitor.js';
 import { useConsoleStream } from './composables/useConsoleStream.js';
 import { useLogcat } from './composables/useLogcat.js';
+import { useDiagnosticRun } from './composables/useDiagnosticRun.js';
 import RailNav from './components/RailNav.vue';
 import DevToolsFrame from './components/DevToolsFrame.vue';
 import DetailDrawer from './components/DetailDrawer.vue';
@@ -51,10 +52,11 @@ const { buildReport: buildReportObj, fallbackReport, buildMarkdown, buildCauseTe
 const networkMonitor = useNetworkMonitor(cdpClient);
 const consoleStream = useConsoleStream(cdpClient);
 const logcatManager = useLogcat();
+const diagnosticRun = useDiagnosticRun(config);
 
 let pollTimer = null;
+let pollInFlight = false;
 
-const targetMeta = computed(() => `${config.title || config.targetId} · ${shortUrl(config.url)}`);
 const hasActivatedDevtools = ref(false);
 const embeddedDevtoolsOpen = ref(false);
 const devtoolsUrl = computed(() => {
@@ -113,23 +115,37 @@ function renderReport() {
     const causesList = buildRootCauses(rawEvents, snapshot.value, config.url, profile.value.id, bc);
     applySourceToCauses(causesList);
     report.value = buildReportObj({
-        config, profile: profile.value, snapshot: snapshot.value,
+        config: { ...config },
+        profile: profile.value ? { ...profile.value } : null,
+        snapshot: snapshot.value,
         events, causes: causesList, breadcrumbs: bc, sourceStats,
-        logcat: logcatManager.entries.value.map(e => e.raw)
+        logcat: logcatManager.entries.value.map(e => e.raw),
+        diagnosticRunId: diagnosticRun.runId.value
     });
     if (!selectedCauseId.value && causesList[0]) selectedCauseId.value = causesList[0].id;
+    diagnosticRun.persistReport(report.value).catch(error => {
+        console.warn('[diagnostic] persist failed:', error);
+    });
 }
 
 async function collect({ reconnect }) {
+    let phase = 'CDP 连接';
     setStatus('采集中', 'busy');
     try {
+        phase = '创建诊断会话';
+        await diagnosticRun.createRun(profile.value);
+        logcatManager.startStream(config.deviceId);
         if (reconnect || !cdpClient.connected.value) {
+            phase = 'CDP 连接';
             cdpClient.close();
             await cdpClient.connect();
+            phase = '启用 CDP 域';
             await cdpClient.enable();
+            phase = '清理回放缓存';
             await window.electronAPI?.clearRrwebChunks?.(config.targetId);
             
             // Set up rrweb transport binding
+            phase = '绑定回放通道';
             await cdpClient.send('Runtime.addBinding', { name: '__rrweb_emit' });
             cdpClient.onEvent('Runtime.bindingCalled', (params) => {
                 if (params.name === '__rrweb_emit' && window.electronAPI) {
@@ -140,13 +156,16 @@ async function collect({ reconnect }) {
             networkMonitor.setup();
             consoleStream.setup();
         }
+        phase = '注入探针';
         await injectProbe();
         await delay(700);
+        phase = '读取探针数据';
         const probeData = await pollProbe();
         if (probeData) Object.assign(probe, probeData);
+        phase = '采集页面快照';
         snapshot.value = await cdpClient.evaluate(runtimeSnapshotExpression());
         profile.value = identifyProject(config.url, snapshot.value, allRawEvents());
-        logcatManager.startStream(config.deviceId);
+        phase = '生成诊断报告';
         renderReport();
         setStatus('监听中', '');
         setupAutoReinject(() => {
@@ -155,12 +174,17 @@ async function collect({ reconnect }) {
         });
     } catch (error) {
         setStatus('连接异常', 'error');
-        report.value = fallbackReport(config, profile.value, error);
+        report.value = fallbackReport(config, profile.value, error, phase);
+        report.value.logcat = logcatManager.entries.value.map(e => e.raw);
+        diagnosticRun.persistReport(report.value).catch(persistError => {
+            console.warn('[diagnostic] persist failed:', persistError);
+        });
     }
 }
 
 async function doPoll() {
-    if (!cdpClient.connected.value) return;
+    if (!cdpClient.connected.value || pollInFlight) return;
+    pollInFlight = true;
     try {
         const probeData = await pollProbe();
         if (probeData) {
@@ -168,6 +192,7 @@ async function doPoll() {
             renderReport();
         }
     } catch (e) { /* ignore */ }
+    finally { pollInFlight = false; }
 }
 
 function onRefresh() {
@@ -190,6 +215,13 @@ async function onCopyMarkdown() {
 async function onCopyCause() {
     await navigator.clipboard.writeText(buildCauseText(selectedCause.value, report.value));
     setStatus('定位信息已复制', '');
+    setTimeout(() => setStatus('监听中', ''), 1200);
+}
+async function onExportRun() {
+    const text = await diagnosticRun.exportRun();
+    if (!text) return;
+    await navigator.clipboard.writeText(text);
+    setStatus('诊断会话已复制', '');
     setTimeout(() => setStatus('监听中', ''), 1200);
 }
 function onSelectCause(id) {
@@ -226,7 +258,6 @@ onBeforeUnmount(() => {
         <header class="root-topbar">
             <div class="target-title">
                 <strong>ztools</strong>
-                <span>{{ targetMeta }}</span>
             </div>
 
             <div class="h-tools">
@@ -293,7 +324,9 @@ onBeforeUnmount(() => {
                         v-show="activePanel === 'report'"
                         :report="report"
                         :markdown="reportMarkdown"
+                        :run-id="diagnosticRun.runId.value"
                         @copy-markdown="onCopyMarkdown"
+                        @export-run="onExportRun"
                     />
                     <DetailDrawer
                         v-show="activePanel === 'diagnosis'"

@@ -19,6 +19,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveRrwebChunk: (targetId, chunk) => ipcRenderer.invoke('save-rrweb-chunk', targetId, chunk),
     clearRrwebChunks: (targetId) => ipcRenderer.invoke('clear-rrweb-chunks', targetId),
     loadRrwebChunks: (targetId) => ipcRenderer.invoke('load-rrweb-chunks', targetId),
+    createDiagnosticRun: (meta) => ipcRenderer.invoke('diagnostic:createRun', meta),
+    appendDiagnosticEvidence: (runId, payload) => ipcRenderer.invoke('diagnostic:appendEvidence', runId, payload),
+    getDiagnosticRun: (runId) => ipcRenderer.invoke('diagnostic:getRun', runId),
+    exportDiagnosticRun: (runId) => ipcRenderer.invoke('diagnostic:exportRun', runId),
 
     // 在线更新相关
     checkForUpdates: () => ipcRenderer.invoke('check-for-update'),

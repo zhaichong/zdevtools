@@ -21,15 +21,12 @@ async function startServer() {
 
     const staticOptions = {
         setHeaders: (res, filePath) => {
-            res.setHeader('Access-Control-Allow-Origin', '*');
-            res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-            res.setHeader('Access-Control-Allow-Headers', '*');
             if (filePath.endsWith('.svg')) {
                 res.setHeader('Content-Type', 'image/svg+xml');
             }
             if (filePath.includes('devtools')) {
                 res.setHeader('Content-Security-Policy',
-                    "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;"
+                    "default-src 'self' http://127.0.0.1:* ws://127.0.0.1:* data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*"
                 );
             }
         }

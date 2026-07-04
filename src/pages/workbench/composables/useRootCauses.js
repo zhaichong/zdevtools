@@ -4,6 +4,7 @@ import { normalizeStack, parseStackText, extractStack, extractCallFrames } from 
 import { classifyError } from '@/shared/utils/classify.js';
 import { decodeErrorPage } from '@/shared/utils/format.js';
 import { LRUCache } from '@/shared/utils/ring-buffer.js';
+import { normalizeRootCause } from '@/shared/utils/diagnostic-run.mjs';
 
 function fingerprint(text) { return String(text || '').replace(/\d+/g, '#').slice(0, 160); }
 function topFrameKey(stack) { const f = stack?.[0]; return f ? `${f.url || ''}:${f.lineNumber || ''}:${f.columnNumber || ''}` : ''; }
@@ -140,7 +141,7 @@ export function useRootCauses() {
                 ).slice(-60);
                 relatedCache.set(cause.id, related);
             }
-            return { ...cause, trigger, related, evidence: cause.evidence.slice(-6), stack: stack.slice(0, 8) };
+            return normalizeRootCause({ ...cause, trigger, related, evidence: cause.evidence.slice(-6), stack: stack.slice(0, 8) });
         });
         return causes.sort((a, b) => severityRank(a.priority) - severityRank(b.priority) || b.count - a.count || b.lastSeen - a.lastSeen);
     }

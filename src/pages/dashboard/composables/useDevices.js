@@ -12,12 +12,15 @@ export function useDevices() {
     const targetsTotal = ref(0);
     const lastScanTime = ref('-');
     let pollingTimer = null;
+    let fetchInFlight = false;
 
     function setStatus(text, type = '') {
         status.value = { text, type };
     }
 
     async function fetchTargets({ silent = false } = {}) {
+        if (fetchInFlight) return;
+        fetchInFlight = true;
         if (!silent) setStatus('扫描中', 'busy');
         try {
             const result = await window.electronAPI.getTargets();
@@ -27,6 +30,8 @@ export function useDevices() {
         } catch (error) {
             setStatus('服务连接失败', 'error');
             diagnostics.value = [{ message: `连接本地服务失败：${error.message}`, isError: true }];
+        } finally {
+            fetchInFlight = false;
         }
     }
 

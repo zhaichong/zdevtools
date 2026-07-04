@@ -4,9 +4,10 @@ import { redact } from '@/shared/utils/redact.js';
 
 const props = defineProps({
     report: { type: Object, default: null },
-    markdown: { type: String, default: '' }
+    markdown: { type: String, default: '' },
+    runId: { type: String, default: '' }
 });
-const emit = defineEmits(['copy-markdown']);
+const emit = defineEmits(['copy-markdown', 'export-run']);
 
 const tab = ref('short');
 const jsonText = computed(() => {
@@ -37,6 +38,8 @@ const shortText = computed(() => {
             </div>
             <div class="report-actions">
                 <span class="redaction-pill">脱敏已开启</span>
+                <span v-if="runId" class="redaction-pill">Run {{ runId.slice(-8) }}</span>
+                <button class="btn secondary" type="button" :disabled="!runId" @click="emit('export-run')">复制会话 JSON</button>
                 <button class="btn primary" type="button" @click="emit('copy-markdown')">复制报告</button>
             </div>
         </header>

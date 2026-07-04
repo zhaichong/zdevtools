@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "test": "node tests/diagnostic-run.test.mjs",
     "start": "electron .",
     "pack": "vite build && electron-builder --dir",
     "dist": "vite build && electron-builder",
@@ -60,16 +61,16 @@
     "url": "https://github.com/zhaichong/zdevtools.git"
   },
   "dependencies": {
-    "electron-updater": "^5.3.0",
+    "electron-updater": "^6.8.9",
     "express": "^4.19.2",
     "http-proxy": "^1.18.1"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^4.6.2",
     "autoprefixer": "^10.4.14",
-    "electron": "^22.3.27",
-    "electron-builder": "^23.6.0",
-    "postcss": "^8.4.31",
+    "electron": "^40.8.5",
+    "electron-builder": "^26.15.3",
+    "postcss": "^8.5.16",
     "prompts": "^2.4.2",
     "rrweb": "^2.0.1",
     "rrweb-player": "^2.0.1",
@@ -77,5 +78,8 @@
     "vite": "^4.5.14",
     "vue": "^3.5.38",
     "vue-virtual-scroller": "^2.0.0-beta.8"
+  },
+  "volta": {
+    "node": "20.20.2"
   }
 }

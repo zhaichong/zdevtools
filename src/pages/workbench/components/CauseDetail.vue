@@ -19,6 +19,10 @@ const sourceLabel = computed(() => {
 
 const evidence = computed(() => (props.cause?.evidence || []).slice(-4));
 const related = computed(() => (props.cause?.related || []).slice(-8));
+const confidenceText = computed(() => {
+    if (typeof props.cause?.confidence !== 'number') return '-';
+    return `${Math.round(props.cause.confidence * 100)}%`;
+});
 
 const quickChecks = computed(() => {
     if (!props.cause) return [];
@@ -58,6 +62,7 @@ async function runCheck(check) {
             <dl>
                 <div><dt>次数</dt><dd>{{ cause.count || 1 }}</dd></div>
                 <div><dt>最近</dt><dd>{{ formatTime(cause.lastSeen) }}</dd></div>
+                <div><dt>置信度</dt><dd>{{ confidenceText }}</dd></div>
                 <div><dt>方向</dt><dd>{{ cause.owner || '-' }}</dd></div>
             </dl>
         </section>

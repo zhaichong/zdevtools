@@ -126,15 +126,16 @@ export function useLogcat() {
     let cleanupError = null;
 
     function startStream(deviceId) {
-        if (!deviceId) return;
+        if (!deviceId) {
+            error.value = '缺少 deviceId，无法启动 logcat';
+            return;
+        }
         
         loading.value = entries.value.length === 0;
         error.value = '';
         
         if (cleanupData) { cleanupData(); cleanupData = null; }
         if (cleanupError) { cleanupError(); cleanupError = null; }
-
-        window.electronAPI.startLogcat(deviceId);
 
         cleanupData = window.electronAPI.onLogcatData((lines) => {
             if (loading.value) loading.value = false;
@@ -153,9 +154,10 @@ export function useLogcat() {
             adjustStats(newEntries, 1);
             entries.value = newArray; // triggers reactivity
 
-            // 核心优化 3：O(K) 增量过滤机制
             const isFilterActive = filterLevel.value !== 'all' || searchLower !== '';
-            if (isFilterActive) {
+            if (!isFilterActive) {
+                filteredEntries.value = newArray;
+            } else {
                 const newMatching = applyFiltersTo(newEntries);
                 if (newMatching.length > 0 || excess > 0) {
                     let newFiltered = filteredEntries.value.concat(newMatching);
@@ -176,6 +178,16 @@ export function useLogcat() {
 
         cleanupError = window.electronAPI.onLogcatError((errMsg) => {
             error.value = `获取 logcat 失败: ${errMsg}`;
+            loading.value = false;
+        });
+
+        window.electronAPI.startLogcat(deviceId).then((result) => {
+            if (result?.status === 'error') {
+                error.value = result.message || '启动 logcat 失败';
+                loading.value = false;
+            }
+        }).catch((err) => {
+            error.value = `启动 logcat 失败: ${err.message}`;
             loading.value = false;
         });
     }

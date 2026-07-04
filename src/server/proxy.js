@@ -1,5 +1,13 @@
 const { createProxyServer } = require('http-proxy');
 
+function isAllowedProxyTarget(port, path) {
+    const n = Number(port);
+    return Number.isInteger(n)
+        && n >= 9220
+        && n <= 9399
+        && /^\/devtools\/page\/[A-Za-z0-9_.:-]+$/.test(path);
+}
+
 /**
  * 创建 WebSocket 代理并返回 proxy 实例
  */
@@ -38,6 +46,10 @@ function mountWsUpgrade(server, proxy) {
         if (match) {
             const port = match[1];
             const path = match[2];
+            if (!isAllowedProxyTarget(port, path)) {
+                socket.destroy();
+                return;
+            }
             socket.setKeepAlive(true, 30000);
             socket.on('close', () => console.log(`[ws-proxy] client closed ${port}${path}`));
             socket.on('error', err => console.error('[ws-proxy] client error:', err.message));
@@ -49,4 +61,4 @@ function mountWsUpgrade(server, proxy) {
     });
 }
 
-module.exports = { createWsProxy, mountWsUpgrade };
+module.exports = { createWsProxy, mountWsUpgrade, isAllowedProxyTarget };

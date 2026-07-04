@@ -35,7 +35,7 @@ function errorHandler(err, req, res, _next) {
     console.error('[server] unhandled error:', err?.message || err);
     if (res.headersSent) return;
     res.status(err.status || 500).json({
-        error: err.message || 'Internal Server Error'
+        error: process.env.VITE_DEV === 'true' ? (err.message || 'Internal Server Error') : 'Internal Server Error'
     });
 }
 

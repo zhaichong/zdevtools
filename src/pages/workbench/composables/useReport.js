@@ -24,28 +24,43 @@ export function useReport() {
     function buildReport({ config, profile, snapshot, events, causes, breadcrumbs, sourceStats, logcat }) {
         return {
             createdAt: new Date().toISOString(),
-            target: config,
-            profile,
+            target: { ...(config || {}) },
+            profile: profile ? { ...profile } : null,
             snapshot,
             events,
             causes,
             breadcrumbs,
-            sourceMaps: { uploaded: sourceStats.uploaded, matched: sourceStats.matched },
+            sourceMaps: { uploaded: sourceStats?.uploaded || 0, matched: sourceStats?.matched || 0 },
             logcat
         };
     }
 
-    function fallbackReport(config, profile, error) {
+    function fallbackTitle(phase) {
+        if (/快照/.test(phase)) return '页面快照采集失败';
+        if (/诊断报告|诊断会话/.test(phase)) return '诊断报告保存失败';
+        if (/CDP|连接/.test(phase)) return 'CDP 连接失败';
+        return `${phase}失败`;
+    }
+
+    function fallbackNext(phase) {
+        if (/快照/.test(phase)) return '页面运行时对象包含不可克隆值，或页面在采集期间跳转/销毁。请重新采集，并优先查看上一条 JS/路由/网络事件。';
+        if (/诊断报告|诊断会话/.test(phase)) return '诊断报告写入失败。请检查报告中是否包含不可序列化对象，并重试导出。';
+        if (/CDP|连接/.test(phase)) return '确认目标 WebView 仍存在，关闭已连接的 DevTools 后重新采集，必要时重启 ADB 转发。';
+        return '重新采集一次，并查看时间线中该阶段之前的最近事件。';
+    }
+
+    function fallbackReport(config, profile, error, phase = 'CDP 连接') {
+        const message = error?.message || String(error || 'Unknown error');
         const cause = {
-            id: 'cdp:connect-failed',
+            id: `diagnostic:${phase}`,
             kind: 'bridge',
             priority: 'P0',
-            title: 'CDP 连接失败',
-            summary: error.message,
-            owner: '调试连接',
-            reason: '工作台无法连接目标 WebView。',
-            next: '关闭已连接的 DevTools 后重新采集，或重新打开工作台。',
-            evidence: [{ error: error.message }],
+            title: fallbackTitle(phase),
+            summary: message,
+            owner: /CDP|连接/.test(phase) ? '调试连接' : '诊断采集',
+            reason: `${phase}阶段失败：${message}`,
+            next: fallbackNext(phase),
+            evidence: [{ phase, error: message }],
             events: [],
             count: 1,
             firstSeen: Date.now(),
@@ -57,8 +72,8 @@ export function useReport() {
         };
         return {
             createdAt: new Date().toISOString(),
-            target: config,
-            profile,
+            target: { ...(config || {}) },
+            profile: profile ? { ...profile } : null,
             snapshot: null,
             events: [],
             causes: [cause],
