@@ -311,6 +311,7 @@ input {
 .device-name {
     margin: 0;
     font-size: 17px;
+    word-break: break-all;
 }
 
 .device-meta {
@@ -318,6 +319,7 @@ input {
     color: var(--muted);
     font-family: Consolas, "Cascadia Mono", monospace;
     font-size: 12px;
+    word-break: break-all;
 }
 
 .device-status {

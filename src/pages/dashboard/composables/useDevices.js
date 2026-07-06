@@ -14,6 +14,14 @@ export function useDevices() {
     let pollingTimer = null;
     let fetchInFlight = false;
 
+    const activeDriver = ref(localStorage.getItem('ztools-driver') || 'adb');
+
+    function setDriver(driver) {
+        activeDriver.value = driver;
+        localStorage.setItem('ztools-driver', driver);
+        fetchTargets();
+    }
+
     function setStatus(text, type = '') {
         status.value = { text, type };
     }
@@ -23,7 +31,7 @@ export function useDevices() {
         fetchInFlight = true;
         if (!silent) setStatus('扫描中', 'busy');
         try {
-            const result = await window.electronAPI.getTargets();
+            const result = await window.electronAPI.getTargets(activeDriver.value);
             data.value = result;
             processData(result);
             setStatus('运行正常', '');
@@ -75,35 +83,50 @@ export function useDevices() {
         lastScanTime.value = nowTime();
     }
 
-    async function restartAdb() {
-        setStatus('重启 ADB 中', 'busy');
-        try {
-            await window.electronAPI.restartAdb();
-            await fetchTargets();
-        } catch (e) {
-            setStatus('ADB 重启失败', 'error');
+    function startPolling() {
+        if (!pollingTimer) {
+            pollingTimer = setInterval(() => fetchTargets({ silent: true }), 7000);
         }
     }
 
-    function startPolling() {
-        pollingTimer = setInterval(() => fetchTargets({ silent: true }), 7000);
+    function stopPolling() {
+        if (pollingTimer) {
+            clearInterval(pollingTimer);
+            pollingTimer = null;
+        }
     }
 
-    function stopPolling() {
-        if (pollingTimer) clearInterval(pollingTimer);
+    function handleVisibilityChange() {
+        if (document.hidden) {
+            stopPolling();
+        } else {
+            fetchTargets({ silent: true }); // Immediately fetch on wake
+            startPolling();
+        }
     }
 
     onMounted(() => {
         fetchTargets();
         startPolling();
+        document.addEventListener('visibilitychange', handleVisibilityChange);
     });
 
     onBeforeUnmount(() => {
         stopPolling();
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
     });
 
     return {
-        data, status, diagnostics, devicesTotal, targetsTotal, lastScanTime,
-        fetchTargets, restartAdb
+        data,
+        status,
+        diagnostics,
+        devicesTotal,
+        targetsTotal,
+        lastScanTime,
+        activeDriver,
+        setDriver,
+        fetchTargets,
+        startPolling,
+        stopPolling
     };
 }

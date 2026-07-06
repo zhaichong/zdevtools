@@ -2,20 +2,19 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
     // ADB / 设备相关
-    getTargets: () => ipcRenderer.invoke('get-targets'),
-    startLogcat: (deviceId) => ipcRenderer.invoke('start-logcat', deviceId),
+    getTargets: (driverType) => ipcRenderer.invoke('get-targets', driverType),
+    startLogcat: (deviceId, driverType) => ipcRenderer.invoke('start-logcat', deviceId, driverType),
     stopLogcat: (deviceId) => ipcRenderer.invoke('stop-logcat', deviceId),
-    onLogcatData: (callback) => {
-        const handler = (_event, lines) => callback(lines);
-        ipcRenderer.on('logcat-data', handler);
-        return () => ipcRenderer.removeListener('logcat-data', handler);
+    onLogcatChunk: (callback) => {
+        const handler = (_event, chunk) => callback(chunk);
+        ipcRenderer.on('logcat-chunk', handler);
+        return () => ipcRenderer.removeListener('logcat-chunk', handler);
     },
     onLogcatError: (callback) => {
         const handler = (_event, error) => callback(error);
         ipcRenderer.on('logcat-error', handler);
         return () => ipcRenderer.removeListener('logcat-error', handler);
     },
-    restartAdb: () => ipcRenderer.invoke('restart-adb'),
     saveRrwebChunk: (targetId, chunk) => ipcRenderer.invoke('save-rrweb-chunk', targetId, chunk),
     clearRrwebChunks: (targetId) => ipcRenderer.invoke('clear-rrweb-chunks', targetId),
     loadRrwebChunks: (targetId) => ipcRenderer.invoke('load-rrweb-chunks', targetId),

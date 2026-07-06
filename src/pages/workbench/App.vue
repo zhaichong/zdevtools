@@ -29,7 +29,8 @@ const config = reactive({
     deviceId: params.get('deviceId') || '',
     title: params.get('title') || 'Untitled',
     url: params.get('url') || '',
-    model: params.get('model') || ''
+    model: params.get('model') || '',
+    driverType: params.get('driverType') || ''
 });
 
 const statusText = ref('连接中');
@@ -134,7 +135,7 @@ async function collect({ reconnect }) {
     try {
         phase = '创建诊断会话';
         await diagnosticRun.createRun(profile.value);
-        logcatManager.startStream(config.deviceId);
+        logcatManager.startStream(config.deviceId, config.driverType);
         if (reconnect || !cdpClient.connected.value) {
             phase = 'CDP 连接';
             cdpClient.close();
@@ -150,6 +151,13 @@ async function collect({ reconnect }) {
             cdpClient.onEvent('Runtime.bindingCalled', (params) => {
                 if (params.name === '__rrweb_emit' && window.electronAPI) {
                     window.electronAPI.saveRrwebChunk(config.targetId, params.payload);
+                }
+            });
+
+            cdpClient.onEvent('Page.frameNavigated', (params) => {
+                if (!params.frame.parentId) {
+                    networkMonitor.clear();
+                    consoleStream.clear();
                 }
             });
 
@@ -236,17 +244,36 @@ async function onSourceMapUpload(event) {
     setStatus(`已上传 ${result.count} 个 map`, '');
 }
 
+let visibilityHandler = null;
+
 onMounted(async () => {
     if (!config.port || !config.targetId) {
         setStatus('参数缺失', 'error');
         return;
     }
     await collect({ reconnect: true });
+    
     pollTimer = setInterval(doPoll, 1800);
+    
+    visibilityHandler = () => {
+        if (document.hidden) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+        } else {
+            if (!pollTimer) {
+                doPoll(); // 唤醒时立即执行一次
+                pollTimer = setInterval(doPoll, 1800);
+            }
+        }
+    };
+    document.addEventListener('visibilitychange', visibilityHandler);
 });
 
 onBeforeUnmount(() => {
-    clearInterval(pollTimer);
+    if (visibilityHandler) {
+        document.removeEventListener('visibilitychange', visibilityHandler);
+    }
+    if (pollTimer) clearInterval(pollTimer);
     cdpClient.removeAllListeners();
     cdpClient.close();
     logcatManager.stopStream(config.deviceId);

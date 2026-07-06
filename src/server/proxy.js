@@ -8,6 +8,7 @@ function isAllowedProxyTarget(port, path) {
         && /^\/devtools\/page\/[A-Za-z0-9_.:-]+$/.test(path);
 }
 
+
 /**
  * 创建 WebSocket 代理并返回 proxy 实例
  */
@@ -19,6 +20,8 @@ function createWsProxy() {
         if (res && res.writeHead) {
             res.writeHead(500);
             res.end('Proxy Error');
+        } else if (res && res.destroy) {
+            res.destroy();
         }
     });
 

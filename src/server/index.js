@@ -1,7 +1,7 @@
 const express = require('express');
 const { createServer } = require('http');
 const path = require('path');
-const { getAdbTargets, startLogcatStream, stopLogcatStream, restartAdb, findFreePort } = require('./adb.js');
+const { getDeviceTargets, startLogStream, stopLogStream, findFreePort } = require('./deviceManager.js');
 const { createWsProxy, mountWsUpgrade } = require('./proxy.js');
 const { requestTimeout, asyncHandler, errorHandler } = require('./middleware.js');
 
@@ -69,5 +69,4 @@ function closeServer() {
 }
 
 // 保持向后兼容
-const { getAdbPath } = require('./adb.js');
-module.exports = { startServer, closeServer, getAdbPath, getAdbTargets };
+module.exports = { startServer, closeServer, getAdbTargets: getDeviceTargets };

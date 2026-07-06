@@ -22,7 +22,10 @@ export function useSourceMap() {
         if (!files.length) return { count: 0, error: '未选择 map' };
         for (const file of files) {
             try {
-                const map = JSON.parse(await file.text());
+                const text = await file.text();
+                // 在极繁重 JSON 解析前强制让出主线程，保障 UI 不卡死 (Spinner 流畅)
+                await new Promise(r => setTimeout(r, 10));
+                const map = JSON.parse(text);
                 const key = normalizeMapKey(file.webkitRelativePath || file.name, map.file);
                 sourceMaps.set(key, {
                     fileName: file.name,

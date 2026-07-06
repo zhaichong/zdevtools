@@ -43,6 +43,17 @@ function parseLogLine(line) {
             level: match[1], tag: match[2].trim(), message: match[4]
         };
     }
+
+    // 4. HarmonyOS hilog format
+    // Example: 08-05 10:20:30.456   123   456 I A00000/TAG: Message
+    match = line.match(/^(\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d{3})\s+(\d+)\s+(\d+)\s+([VDIWEF])\s+[^/]+\/(.+?):\s*(.*)$/);
+    if (match) {
+        return {
+            id: ++_id, raw: line, parsed: true,
+            timestamp: match[1], pid: match[2], tid: match[3],
+            level: match[4], tag: match[5].trim(), message: match[6]
+        };
+    }
     
     // 未识别的降级原始格式
     return {
@@ -125,55 +136,77 @@ export function useLogcat() {
     let cleanupData = null;
     let cleanupError = null;
 
-    function startStream(deviceId) {
+    function startStream(deviceId, driverType) {
         if (!deviceId) {
             error.value = '缺少 deviceId，无法启动 logcat';
             return;
         }
         
         loading.value = entries.value.length === 0;
-        error.value = '';
-        
+
         if (cleanupData) { cleanupData(); cleanupData = null; }
         if (cleanupError) { cleanupError(); cleanupError = null; }
 
-        cleanupData = window.electronAPI.onLogcatData((lines) => {
+        let chunkBuffer = '';
+
+        function redactSensitive(text) {
+            return String(text || '')
+                .replace(/(access_token|token|password|client_secret|Authorization)(["'\s:=]+)([^"',\s&]+)/gi, '$1$2[REDACTED]')
+                .replace(/(Bearer\s+)[A-Za-z0-9._-]+/gi, '$1[REDACTED]');
+        }
+
+        cleanupData = window.electronAPI.onLogcatChunk((chunk) => {
             if (loading.value) loading.value = false;
             if (paused.value) return;
-            if (!lines || lines.length === 0) return;
+            if (!chunk) return;
 
-            const newEntries = lines.map(parseLogLine);
-            let newArray = entries.value.concat(newEntries);
-            let removed = [];
-            const excess = newArray.length - MAX_ENTRIES;
-            if (excess > 0) {
-                removed = newArray.slice(0, excess);
-                newArray = newArray.slice(excess);
-                adjustStats(removed, -1);
-            }
-            adjustStats(newEntries, 1);
-            entries.value = newArray; // triggers reactivity
+            chunkBuffer += chunk;
+            let rawLines = chunkBuffer.split(/\r?\n/);
+            chunkBuffer = rawLines.pop() || ''; // Keep the incomplete line in the buffer
+            
+            if (rawLines.length === 0) return;
 
-            const isFilterActive = filterLevel.value !== 'all' || searchLower !== '';
-            if (!isFilterActive) {
-                filteredEntries.value = newArray;
-            } else {
-                const newMatching = applyFiltersTo(newEntries);
-                if (newMatching.length > 0 || excess > 0) {
-                    let newFiltered = filteredEntries.value.concat(newMatching);
-                    if (excess > 0 && removed.length > 0) {
-                        const maxRemovedId = removed[removed.length - 1].id;
-                        let removeCount = 0;
-                        while (removeCount < newFiltered.length && newFiltered[removeCount].id <= maxRemovedId) {
-                            removeCount++;
-                        }
-                        if (removeCount > 0) {
-                            newFiltered = newFiltered.slice(removeCount);
-                        }
-                    }
-                    filteredEntries.value = newFiltered; // triggers reactivity
+            // 核心优化 3（前端）：使用 setTimeout(0) 将巨量日志的映射推迟到下一个事件循环，防止阻塞渲染帧
+            setTimeout(() => {
+                const newEntries = rawLines.map(line => parseLogLine(redactSensitive(line.trim()))).filter(e => e.raw);
+                if (newEntries.length === 0) return;
+                
+                let newArray = entries.value.concat(newEntries);
+                let removed = [];
+                const excess = newArray.length - MAX_ENTRIES;
+                if (excess > 0) {
+                    removed = newArray.slice(0, excess);
+                    newArray = newArray.slice(excess);
+                    adjustStats(removed, -1);
                 }
-            }
+                adjustStats(newEntries, 1);
+                entries.value = newArray; // triggers reactivity
+
+                const isFilterActive = filterLevel.value !== 'all' || searchLower !== '';
+                if (!isFilterActive) {
+                    filteredEntries.value = newArray;
+                } else {
+                    const newMatching = applyFiltersTo(newEntries);
+                    if (newMatching.length > 0 || excess > 0) {
+                        let newFiltered = filteredEntries.value.concat(newMatching);
+                        if (excess > 0 && removed.length > 0) {
+                            const maxRemovedId = removed[removed.length - 1].id;
+                            let removeCount = 0;
+                            while (removeCount < newFiltered.length && newFiltered[removeCount].id <= maxRemovedId) {
+                                removeCount++;
+                            }
+                            if (removeCount > 0) {
+                                newFiltered = newFiltered.slice(removeCount);
+                            }
+                        }
+                        filteredEntries.value = newFiltered;
+                    }
+                }
+
+                if (autoScroll.value && filteredEntries.value.length > 0) {
+                    matchIndex.value = filteredEntries.value.length - 1;
+                }
+            }, 0);
         });
 
         cleanupError = window.electronAPI.onLogcatError((errMsg) => {
@@ -181,7 +214,7 @@ export function useLogcat() {
             loading.value = false;
         });
 
-        window.electronAPI.startLogcat(deviceId).then((result) => {
+        window.electronAPI.startLogcat(deviceId, driverType).then((result) => {
             if (result?.status === 'error') {
                 error.value = result.message || '启动 logcat 失败';
                 loading.value = false;

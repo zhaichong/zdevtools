@@ -4,7 +4,7 @@ const path = require('path');
 const fsp = require('fs/promises');
 const crypto = require('crypto');
 const { startServer } = require('./src/server/index.js');
-const { getAdbTargets, startLogcatStream, stopLogcatStream, restartAdb } = require('./src/server/adb.js');
+const { getDeviceTargets, startLogStream, stopLogStream } = require('./src/server/deviceManager.js');
 
 process.on('uncaughtException', (err) => {
     console.error('[main] uncaughtException:', err);
@@ -222,14 +222,14 @@ app.on('activate', () => {
     }
 });
 
-// 优雅关闭：清理 ADB forward 并关闭 HTTP server
+// 优雅关闭：清理 forward 并关闭 HTTP server
 app.on('before-quit', async (event) => {
     event.preventDefault();
     try {
-        const { runAdb } = require('./src/server/adb.js');
+        const { teardown } = require('./src/server/deviceManager.js');
         const { closeServer } = require('./src/server/index.js');
         console.log('[main] before-quit: cleaning up...');
-        await runAdb(['forward', '--remove-all']);
+        await teardown();
         await closeServer();
         console.log('[main] before-quit: cleanup complete');
     } catch (e) {
@@ -238,21 +238,17 @@ app.on('before-quit', async (event) => {
     app.exit(0);
 });
 
-ipcMain.handle('get-targets', async () => {
-    return await getAdbTargets();
+ipcMain.handle('get-targets', async (event, driverType) => {
+    return await getDeviceTargets(driverType);
 });
 
-ipcMain.handle('start-logcat', async (event, deviceId) => {
-    return await startLogcatStream(deviceId, event.sender);
+ipcMain.handle('start-logcat', async (event, deviceId, driverType) => {
+    return await startLogStream(deviceId, event.sender, driverType);
 });
 
 ipcMain.handle('stop-logcat', async (event, deviceId) => {
-    stopLogcatStream(deviceId);
+    stopLogStream(deviceId, event.sender);
     return { status: 'success' };
-});
-
-ipcMain.handle('restart-adb', async () => {
-    return await restartAdb();
 });
 
 ipcMain.handle('save-rrweb-chunk', async (event, targetId, chunk) => {

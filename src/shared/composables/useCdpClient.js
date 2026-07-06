@@ -104,6 +104,7 @@ export function useCdpClient(port, targetId, options = {}) {
                     if (attempts > 1) {
                         enable().catch(e => console.warn('[cdp] re-enable after reconnect failed:', e));
                     }
+                    attempts = 0; // 重置重试次数，保障无限自愈
                     resolve();
                 };
 
