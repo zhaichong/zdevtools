@@ -6,6 +6,7 @@ import { redact } from '@/shared/utils/redact.js';
 import { decodeErrorPage, delay, nowTime } from '@/shared/utils/format.js';
 import { extractStack, extractCallFrames } from '@/shared/utils/stack.js';
 import { classifyError, classifyNetworkError } from '@/shared/utils/classify.js';
+import { getBridgeAction, getProfileConfig } from '@/shared/constants/profiles.js';
 
 /**
  * Dashboard 快速诊断
@@ -83,17 +84,10 @@ export function useQuickDiagnosis() {
             findings.push({ severity: 'warn', category: 'Android bridge 缺失', message: 'window.android 不存在。', action: '如果是在设备 WebView 内，先确认 Android 是否注入 addJavascriptInterface。' });
         } else {
             const missing = Object.entries(snapshot.androidMethods || {}).filter(([, ok]) => !ok).map(([name]) => name);
-            if (missing.length) findings.push({ severity: 'warn', category: 'Android bridge 方法缺失', message: `缺少方法：${missing.join(', ')}`, action: bridgeAction(missing, profile) });
+            if (missing.length) findings.push({ severity: 'warn', category: 'Android bridge 方法缺失', message: `缺少方法：${missing.join(', ')}`, action: getBridgeAction(missing, profile?.id) });
         }
         if (snapshot.resourceFailures?.length) findings.push({ severity: 'warn', category: '资源疑似失败', message: `performance 中发现 ${snapshot.resourceFailures.length} 个 transferSize=0 的资源。`, action: '展开工作台资源失败，检查 JS/CSS/图片是否 404 或缓存未更新。' });
         return findings;
-    }
-
-    function bridgeAction(missing, profile = {}) {
-        if (profile.id === 'yarward-ntv-frontend') return '确认 MySDK、getDeviceInfo、getOrgId、getAccessToken 和 launchFinished 调用时机。';
-        if (profile.id === 'zhbf-bedhead-frontend') return '确认 writeLog、getDeviceInfo、getOrgId、getAccessToken 是否由 Android 注入。';
-        if (profile.id === 'zhbf-fontend') return '确认 pageLoadFinished、toLogInE 和 token/orgId 获取方法是否存在。';
-        return `确认 Android 注入的方法是否和前端调用一致：${missing.join(', ')}。`;
     }
 
     function actionForIssue(issue, profile = {}, snapshot = {}) {
@@ -104,7 +98,7 @@ export function useQuickDiagnosis() {
         if (/Vue/.test(category)) return '按堆栈第一条业务文件定位组件，同时检查当前路由参数和接口返回结构。';
         if (/接口|HTTP|Network/.test(category + message)) return '确认 baseURL、orgId/deptId、token、网关和后端服务状态。';
         if (/资源/.test(category)) return '看失败资源是 JS/CSS/图片；JS chunk 失败通常导致白屏或功能缺失。';
-        if (/Android bridge/.test(category)) return bridgeAction([], profile);
+        if (/Android bridge/.test(category)) return getBridgeAction([], profile?.id);
         if (snapshot?.href?.includes('/ntv/')) return '优先检查 launch.html/launchFinished、globalConfig、MATTRESS_API_CONFIG 和 MQTT 初始化。';
         return '结合工作台中的 Network、时间线、快照和 logcat 判断启动链路。';
     }
@@ -119,12 +113,13 @@ export function useQuickDiagnosis() {
         if (snapshot?.isLikelyBlank) add('danger', '先按白屏排查', '页面 readyState 已完成但 DOM/文本很少。', '看入口 JS/chunk 是否加载失败，再查 Vue 挂载、路由守卫和启动接口。');
         if (network.length) add('danger', '先处理失败请求', `采集到 ${network.length} 个 Network 失败。`, `优先看 ${network[0].status || network[0].text || 'failed'}：${redact(network[0].url || network[0].requestId || '')}`);
         if (!snapshot?.globals?.android) add('warning', '确认运行环境是否缺少 Android bridge', '页面未检测到 window.android。', '设备 WebView 内确认 addJavascriptInterface 注入；Chrome 预览时用 mock bridge。');
-        else if (missingBridge.length) add('warning', '补齐或兼容缺失的 bridge 方法', `window.android 存在，但缺少 ${missingBridge.join(', ')}。`, bridgeAction(missingBridge, profile));
+        else if (missingBridge.length) add('warning', '补齐或兼容缺失的 bridge 方法', `window.android 存在，但缺少 ${missingBridge.join(', ')}。`, getBridgeAction(missingBridge, profile?.id));
         if (snapshot?.resourceFailures?.length) add('warning', '检查静态资源加载', `performance 记录到 ${snapshot.resourceFailures.length} 个疑似失败资源。`, `先查 ${snapshot.resourceFailures[0].initiatorType || 'resource'}：${snapshot.resourceFailures[0].name}`);
         if (meaningfulErrors.length) add('warning', `定位 ${meaningfulErrors[0].category}`, meaningfulErrors[0].message || '采集到有业务意义的运行时错误。', meaningfulErrors[0].action || actionForIssue(meaningfulErrors[0], profile, snapshot));
-        if (profile.id === 'yarward-ntv-frontend') add('info', '按 NurseNtv 启动链路复核', '当前识别为 yarward-ntv 页面。', '依次确认 URL orgId/deptId/devId、globalConfig、MATTRESS_API_CONFIG、MySDK、MQTT 日志。');
-        if (profile.id === 'zhbf-bedhead-frontend') add('info', '按床头卡链路复核', '当前识别为床头卡页面。', '打开 webDebug 后复现，重点看 writeLog/logcat、床头卡接口和 IdlePerformance。');
-        if (profile.id === 'zhbf-fontend') add('info', '按信息看板链路复核', '当前识别为 zhbf-fontend。', '先查 ApiBase 请求和 token/orgId，再确认 pageLoadFinished/toLogInE。');
+        const profileConfig = getProfileConfig(profile.id);
+        if (profileConfig && profileConfig.guidance) {
+            add('info', profileConfig.guidance.title, profileConfig.guidance.description, profileConfig.guidance.action);
+        }
         if (!guidance.length && lowSignalCount) add('info', '当前只有低价值匿名错误', `采集到 ${lowSignalCount} 条 Uncaught/<anonymous>，没有业务堆栈。`, '进入调试工作台，结合时间线、Network、Bridge 和 logcat 排查。');
         return guidance.slice(0, 6);
     }

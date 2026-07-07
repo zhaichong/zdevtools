@@ -56,10 +56,11 @@ export function useProbe(cdpClient) {
      * @param {function} [onReinject] - 重注入成功后的回调
      */
     let reinjectRegistered = false;
+    let unsub = null;
     function setupAutoReinject(onReinject) {
         if (reinjectRegistered) return;
         reinjectRegistered = true;
-        cdpClient.onEvent('Page.frameNavigated', async (params) => {
+        unsub = cdpClient.onEvent('Page.frameNavigated', async (params) => {
             // 只处理主框架导航，忽略 iframe
             if (params.frame?.parentId) return;
             // 导航后等待页面初步加载
@@ -73,7 +74,15 @@ export function useProbe(cdpClient) {
         });
     }
 
-    return { injectProbe, pollProbe, setupAutoReinject };
+    function dispose() {
+        if (unsub) {
+            unsub();
+            unsub = null;
+        }
+        reinjectRegistered = false;
+    }
+
+    return { injectProbe, pollProbe, setupAutoReinject, dispose };
 }
 
 function probeInstaller(bridgeMethods) {

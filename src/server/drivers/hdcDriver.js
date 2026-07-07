@@ -1,6 +1,7 @@
-const { execFile, spawn } = require('child_process');
+const { execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { withRetry, parseDevtoolsSockets, createLogStreamManager } = require('./baseDriver.js');
 
 const HDC_TIMEOUT_MS = 6000;
 
@@ -25,21 +26,6 @@ function runHdc(args, timeout = HDC_TIMEOUT_MS) {
             });
         });
     });
-}
-
-function withRetry(fn, { maxRetries = 3, baseDelay = 1000 } = {}) {
-    return async (...args) => {
-        let lastResult;
-        for (let i = 0; i <= maxRetries; i++) {
-            lastResult = await fn(...args);
-            if (lastResult.ok) return lastResult;
-            if (i < maxRetries) {
-                const delay = baseDelay * Math.pow(2, i);
-                await new Promise(r => setTimeout(r, delay));
-            }
-        }
-        return lastResult;
-    };
 }
 
 const runHdcWithRetry = withRetry(runHdc, { maxRetries: 3, baseDelay: 1000 });
@@ -73,18 +59,12 @@ function parseForwards(output) {
     }, []);
 }
 
-function parseDevtoolsSockets(output) {
-    const socketMatches = [...output.matchAll(/@([A-Za-z0-9_.-]*devtools_remote[A-Za-z0-9_.-]*)/g)];
-    return [...new Set(socketMatches.map(match => match[1]))];
-}
-
-function redactSensitive(text) {
-    return String(text || '')
-        .replace(/(access_token|token|password|client_secret|Authorization)(["'\s:=]+)([^"',\s&]+)/gi, '$1$2[REDACTED]')
-        .replace(/(Bearer\s+)[A-Za-z0-9._-]+/gi, '$1[REDACTED]');
-}
-
-const activeLogStreams = new Map();
+// 日志流管理器（共享订阅者模式）
+const logStream = createLogStreamManager({
+    getToolPath: getHdcPath,
+    buildArgs: (id) => ['-t', id, 'hilog'],
+    errorLabel: 'Hilog'
+});
 
 module.exports = {
     type: 'hdc',
@@ -143,91 +123,7 @@ module.exports = {
         return { ok: result.ok, error: result.error || result.stderr };
     },
 
-    startLogStream: async (id, webContents) => {
-        if (!id) return { status: 'error', message: 'deviceId is required' };
-        
-        let streamData = activeLogStreams.get(id);
-        
-        if (!streamData) {
-            const args = ['-t', id, 'hilog'];
-            const newChild = spawn(getHdcPath(), args, { windowsHide: true });
-            
-            streamData = { child: newChild, subscribers: new Set() };
-            activeLogStreams.set(id, streamData);
-
-            let chunkBuffer = '';
-            let debounceTimer = null;
-
-            newChild.stdout.on('data', (chunk) => {
-                chunkBuffer += chunk.toString();
-                if (!debounceTimer) {
-                    debounceTimer = setTimeout(() => {
-                        const text = chunkBuffer;
-                        chunkBuffer = '';
-                        debounceTimer = null;
-                        if (text) {
-                            for (const sub of streamData.subscribers) {
-                                if (!sub.isDestroyed()) sub.send('logcat-chunk', text);
-                            }
-                        }
-                    }, 50); // 50ms 缓冲防暴 IPC 洪水
-                }
-            });
-
-            newChild.stderr.on('data', (chunk) => {
-                const message = chunk.toString().trim();
-                if (message) {
-                    for (const sub of streamData.subscribers) {
-                        if (!sub.isDestroyed()) sub.send('logcat-error', message);
-                    }
-                }
-            });
-
-            newChild.on('error', (err) => {
-                for (const sub of streamData.subscribers) {
-                    if (!sub.isDestroyed()) sub.send('logcat-error', `Hilog process error: ${err.message}`);
-                }
-                activeLogStreams.delete(id);
-            });
-
-            newChild.on('close', (code) => {
-                if (code !== 0 && code !== null) {
-                    for (const sub of streamData.subscribers) {
-                        if (!sub.isDestroyed()) sub.send('logcat-error', `Hilog process exited with code ${code}`);
-                    }
-                }
-                activeLogStreams.delete(id);
-            });
-        }
-
-        // 加入订阅者
-        streamData.subscribers.add(webContents);
-
-        // 监听销毁事件，自动解除订阅
-        const cleanup = () => {
-            if (streamData) {
-                streamData.subscribers.delete(webContents);
-                if (streamData.subscribers.size === 0) {
-                    streamData.child.kill();
-                    activeLogStreams.delete(id);
-                    streamData = null;
-                }
-            }
-        };
-        webContents.once('destroyed', cleanup);
-        webContents.once('did-navigate', cleanup);
-
-        return { status: 'success' };
-    },
-
-    stopLogStream: (id, webContents) => {
-        const streamData = activeLogStreams.get(id);
-        if (streamData && webContents) {
-            streamData.subscribers.delete(webContents);
-            if (streamData.subscribers.size === 0) {
-                streamData.child.kill();
-                activeLogStreams.delete(id);
-            }
-        }
-    }
+    startLogStream: logStream.startLogStream,
+    stopLogStream: logStream.stopLogStream,
+    killAllLogStreams: logStream.killAll
 };

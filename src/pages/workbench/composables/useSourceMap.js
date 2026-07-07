@@ -9,7 +9,9 @@ export function useSourceMap() {
     const sourceStats = reactive({ uploaded: 0, matched: 0 });
 
     function normalizeMapKey(...parts) {
-        return parts.filter(Boolean).join('/').replace(/\\/g, '/').split('/').pop();
+        const path = parts.filter(Boolean).join('/').replace(/\\/g, '/');
+        const segments = path.split('/');
+        return segments.slice(-Math.min(3, segments.length)).join('/');
     }
 
     function fileNameFromUrl(url) {
@@ -33,6 +35,12 @@ export function useSourceMap() {
                     map,
                     mappings: parseMappings(map.mappings || '')
                 });
+                
+                // 限制最多保存 30 个 source map，防止内存泄露
+                if (sourceMaps.size > 30) {
+                    const firstKey = sourceMaps.keys().next().value;
+                    sourceMaps.delete(firstKey);
+                }
             } catch (e) {
                 console.warn('SourceMap parse failed', file.name, e);
             }

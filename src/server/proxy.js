@@ -1,13 +1,15 @@
 const { createProxyServer } = require('http-proxy');
+const { FORWARD_PORT_MIN, FORWARD_PORT_MAX } = require('./constants.js');
 
 function isAllowedProxyTarget(port, path) {
     const n = Number(port);
     return Number.isInteger(n)
-        && n >= 9220
-        && n <= 9399
+        && n >= FORWARD_PORT_MIN
+        && n <= FORWARD_PORT_MAX
         && /^\/devtools\/page\/[A-Za-z0-9_.:-]+$/.test(path);
 }
 
+const activeSockets = new Set();
 
 /**
  * 创建 WebSocket 代理并返回 proxy 实例
@@ -30,9 +32,16 @@ function createWsProxy() {
     });
 
     proxy.on('open', (proxySocket) => {
+        activeSockets.add(proxySocket);
         proxySocket.setKeepAlive(true, 30000);
-        proxySocket.on('close', () => console.log('[ws-proxy] upstream closed'));
-        proxySocket.on('error', err => console.error('[ws-proxy] upstream error:', err.message));
+        proxySocket.on('close', () => {
+            activeSockets.delete(proxySocket);
+            console.log('[ws-proxy] upstream closed');
+        });
+        proxySocket.on('error', err => {
+            activeSockets.delete(proxySocket);
+            console.error('[ws-proxy] upstream error:', err.message);
+        });
     });
 
     return proxy;
@@ -53,9 +62,16 @@ function mountWsUpgrade(server, proxy) {
                 socket.destroy();
                 return;
             }
+            activeSockets.add(socket);
             socket.setKeepAlive(true, 30000);
-            socket.on('close', () => console.log(`[ws-proxy] client closed ${port}${path}`));
-            socket.on('error', err => console.error('[ws-proxy] client error:', err.message));
+            socket.on('close', () => {
+                activeSockets.delete(socket);
+                console.log(`[ws-proxy] client closed ${port}${path}`);
+            });
+            socket.on('error', err => {
+                activeSockets.delete(socket);
+                console.error('[ws-proxy] client error:', err.message);
+            });
             req.url = path;
             proxy.ws(req, socket, head, { target: `http://127.0.0.1:${port}` });
         } else {
@@ -64,4 +80,13 @@ function mountWsUpgrade(server, proxy) {
     });
 }
 
-module.exports = { createWsProxy, mountWsUpgrade, isAllowedProxyTarget };
+function closeAllSockets() {
+    for (const socket of activeSockets) {
+        if (!socket.destroyed) {
+            socket.destroy();
+        }
+    }
+    activeSockets.clear();
+}
+
+module.exports = { createWsProxy, mountWsUpgrade, isAllowedProxyTarget, closeAllSockets };

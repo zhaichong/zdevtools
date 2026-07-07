@@ -11,3 +11,6 @@ yarn-error.log*
 Thumbs.db
 .DS_Store
 *.blockmap
+temp_unix.txt
+scratch_github.json
+*.log

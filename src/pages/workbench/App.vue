@@ -1,17 +1,7 @@
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue';
-import { useCdpClient } from '@/shared/composables/useCdpClient.js';
-import { identifyProject } from '@/shared/composables/useProjectIdentify.js';
-import { runtimeSnapshotExpression } from '@/shared/utils/snapshot.js';
-import { delay } from '@/shared/utils/format.js';
-import { useProbe } from './composables/useProbe.js';
-import { useRootCauses } from './composables/useRootCauses.js';
-import { useSourceMap } from './composables/useSourceMap.js';
+import { ref, reactive, computed, onMounted } from 'vue';
+import { useWorkbenchSession } from './composables/useWorkbenchSession.js';
 import { useReport } from './composables/useReport.js';
-import { useNetworkMonitor } from './composables/useNetworkMonitor.js';
-import { useConsoleStream } from './composables/useConsoleStream.js';
-import { useLogcat } from './composables/useLogcat.js';
-import { useDiagnosticRun } from './composables/useDiagnosticRun.js';
 import RailNav from './components/RailNav.vue';
 import DevToolsFrame from './components/DevToolsFrame.vue';
 import DetailDrawer from './components/DetailDrawer.vue';
@@ -33,33 +23,35 @@ const config = reactive({
     driverType: params.get('driverType') || ''
 });
 
-const statusText = ref('连接中');
-const statusType = ref('busy');
 const activePanel = ref('diagnosis');
 const selectedCauseId = ref('');
 const diagnosisOpen = ref(true);
-const report = ref(null);
-const snapshot = ref(null);
-const probe = reactive({ breadcrumbs: [], errors: [], network: [] });
-const profile = ref(identifyProject(config.url));
 const showRrwebModal = ref(false);
-
-const cdpClient = useCdpClient(config.port, config.targetId, { includeTime: true });
-const { injectProbe, pollProbe, setupAutoReinject } = useProbe(cdpClient);
-const { buildRootCauses, buildBreadcrumbs, dedupeEvents, normalizeEventForCause, relatedCache } = useRootCauses();
-const { sourceStats, handleSourceMapFiles, applySourceToCauses } = useSourceMap();
-const { buildReport: buildReportObj, fallbackReport, buildMarkdown, buildCauseText } = useReport();
-
-const networkMonitor = useNetworkMonitor(cdpClient);
-const consoleStream = useConsoleStream(cdpClient);
-const logcatManager = useLogcat();
-const diagnosticRun = useDiagnosticRun(config);
-
-let pollTimer = null;
-let pollInFlight = false;
-
 const hasActivatedDevtools = ref(false);
 const embeddedDevtoolsOpen = ref(false);
+
+const { buildMarkdown, buildCauseText } = useReport();
+
+const {
+    statusText, statusType, report, snapshot, profile, probe,
+    cdpClient, logcatManager, diagnosticRun, sourceStats,
+    collect, onRefresh, renderReport, setStatus, handleSourceMapFiles
+} = useWorkbenchSession(config);
+
+function initSelectedCauseId(causesList) {
+    if (!selectedCauseId.value && causesList[0]) {
+        selectedCauseId.value = causesList[0].id;
+    }
+}
+
+onMounted(async () => {
+    if (!config.port || !config.targetId) {
+        setStatus('参数缺失', 'error');
+        return;
+    }
+    await collect({ reconnect: true }, initSelectedCauseId);
+});
+
 const devtoolsUrl = computed(() => {
     if (!hasActivatedDevtools.value) return '';
     const wsUrl = `${location.host}/ws-proxy/${config.port}/devtools/page/${config.targetId}`;
@@ -88,11 +80,6 @@ const counts = computed(() => {
     };
 });
 
-function setStatus(text, type = '') {
-    statusText.value = text;
-    statusType.value = type;
-}
-
 async function evaluateForCause(expression) {
     const result = await cdpClient.send('Runtime.evaluate', {
         expression, returnByValue: true, awaitPromise: true, timeout: 5000
@@ -101,112 +88,6 @@ async function evaluateForCause(expression) {
     return result.result?.value;
 }
 
-function allRawEvents() {
-    return [
-        ...cdpClient.events.value,
-        ...(probe.errors || []).map(item => ({ ...item, source: item.source || 'probe' })),
-        ...(probe.network || []).map(item => ({ ...item, type: 'network', source: item.source || 'probe' }))
-    ];
-}
-
-function renderReport() {
-    const rawEvents = allRawEvents();
-    const events = dedupeEvents(rawEvents.map(normalizeEventForCause));
-    const bc = buildBreadcrumbs(probe.breadcrumbs, events);
-    const causesList = buildRootCauses(rawEvents, snapshot.value, config.url, profile.value.id, bc);
-    applySourceToCauses(causesList);
-    report.value = buildReportObj({
-        config: { ...config },
-        profile: profile.value ? { ...profile.value } : null,
-        snapshot: snapshot.value,
-        events, causes: causesList, breadcrumbs: bc, sourceStats,
-        logcat: logcatManager.entries.value.map(e => e.raw),
-        diagnosticRunId: diagnosticRun.runId.value
-    });
-    if (!selectedCauseId.value && causesList[0]) selectedCauseId.value = causesList[0].id;
-    diagnosticRun.persistReport(report.value).catch(error => {
-        console.warn('[diagnostic] persist failed:', error);
-    });
-}
-
-async function collect({ reconnect }) {
-    let phase = 'CDP 连接';
-    setStatus('采集中', 'busy');
-    try {
-        phase = '创建诊断会话';
-        await diagnosticRun.createRun(profile.value);
-        logcatManager.startStream(config.deviceId, config.driverType);
-        if (reconnect || !cdpClient.connected.value) {
-            phase = 'CDP 连接';
-            cdpClient.close();
-            await cdpClient.connect();
-            phase = '启用 CDP 域';
-            await cdpClient.enable();
-            phase = '清理回放缓存';
-            await window.electronAPI?.clearRrwebChunks?.(config.targetId);
-            
-            // Set up rrweb transport binding
-            phase = '绑定回放通道';
-            await cdpClient.send('Runtime.addBinding', { name: '__rrweb_emit' });
-            cdpClient.onEvent('Runtime.bindingCalled', (params) => {
-                if (params.name === '__rrweb_emit' && window.electronAPI) {
-                    window.electronAPI.saveRrwebChunk(config.targetId, params.payload);
-                }
-            });
-
-            cdpClient.onEvent('Page.frameNavigated', (params) => {
-                if (!params.frame.parentId) {
-                    networkMonitor.clear();
-                    consoleStream.clear();
-                }
-            });
-
-            networkMonitor.setup();
-            consoleStream.setup();
-        }
-        phase = '注入探针';
-        await injectProbe();
-        await delay(700);
-        phase = '读取探针数据';
-        const probeData = await pollProbe();
-        if (probeData) Object.assign(probe, probeData);
-        phase = '采集页面快照';
-        snapshot.value = await cdpClient.evaluate(runtimeSnapshotExpression());
-        profile.value = identifyProject(config.url, snapshot.value, allRawEvents());
-        phase = '生成诊断报告';
-        renderReport();
-        setStatus('监听中', '');
-        setupAutoReinject(() => {
-            setStatus('探针已重注入', 'busy');
-            setTimeout(() => setStatus('监听中', ''), 1500);
-        });
-    } catch (error) {
-        setStatus('连接异常', 'error');
-        report.value = fallbackReport(config, profile.value, error, phase);
-        report.value.logcat = logcatManager.entries.value.map(e => e.raw);
-        diagnosticRun.persistReport(report.value).catch(persistError => {
-            console.warn('[diagnostic] persist failed:', persistError);
-        });
-    }
-}
-
-async function doPoll() {
-    if (!cdpClient.connected.value || pollInFlight) return;
-    pollInFlight = true;
-    try {
-        const probeData = await pollProbe();
-        if (probeData) {
-            Object.assign(probe, probeData);
-            renderReport();
-        }
-    } catch (e) { /* ignore */ }
-    finally { pollInFlight = false; }
-}
-
-function onRefresh() {
-    relatedCache.clear();
-    collect({ reconnect: false });
-}
 function onActivateEmbeddedDevtools() {
     hasActivatedDevtools.value = true;
     embeddedDevtoolsOpen.value = true;
@@ -216,7 +97,7 @@ function onSelectPanel(panel) {
     if (panel === 'devtools') onActivateEmbeddedDevtools();
 }
 async function onCopyMarkdown() {
-    await navigator.clipboard.writeText(buildMarkdown(report.value) || '');
+    await navigator.clipboard.writeText(reportMarkdown.value);
     setStatus('报告已复制', '');
     setTimeout(() => setStatus('监听中', ''), 1200);
 }
@@ -240,44 +121,9 @@ function onSelectCause(id) {
 async function onSourceMapUpload(event) {
     const result = await handleSourceMapFiles(event.target.files);
     if (result.error) { setStatus('未选择 map', 'error'); return; }
-    renderReport();
+    renderReport(initSelectedCauseId);
     setStatus(`已上传 ${result.count} 个 map`, '');
 }
-
-let visibilityHandler = null;
-
-onMounted(async () => {
-    if (!config.port || !config.targetId) {
-        setStatus('参数缺失', 'error');
-        return;
-    }
-    await collect({ reconnect: true });
-    
-    pollTimer = setInterval(doPoll, 1800);
-    
-    visibilityHandler = () => {
-        if (document.hidden) {
-            clearInterval(pollTimer);
-            pollTimer = null;
-        } else {
-            if (!pollTimer) {
-                doPoll(); // 唤醒时立即执行一次
-                pollTimer = setInterval(doPoll, 1800);
-            }
-        }
-    };
-    document.addEventListener('visibilitychange', visibilityHandler);
-});
-
-onBeforeUnmount(() => {
-    if (visibilityHandler) {
-        document.removeEventListener('visibilitychange', visibilityHandler);
-    }
-    if (pollTimer) clearInterval(pollTimer);
-    cdpClient.removeAllListeners();
-    cdpClient.close();
-    logcatManager.stopStream(config.deviceId);
-});
 </script>
 
 <template>
@@ -367,7 +213,7 @@ onBeforeUnmount(() => {
                         :source-stats="sourceStats"
                         :on-evaluate="evaluateForCause"
                         @toggle="diagnosisOpen = !diagnosisOpen"
-                        @refresh="onRefresh"
+                        @refresh="() => onRefresh(initSelectedCauseId)"
                         @copy-cause="onCopyCause"
                         @select-cause="onSelectCause"
                     />

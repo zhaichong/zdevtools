@@ -5,6 +5,7 @@ import { classifyError } from '@/shared/utils/classify.js';
 import { decodeErrorPage } from '@/shared/utils/format.js';
 import { LRUCache } from '@/shared/utils/ring-buffer.js';
 import { normalizeRootCause } from '@/shared/utils/diagnostic-run.mjs';
+import { getBridgeAction } from '@/shared/constants/profiles.js';
 
 function fingerprint(text) { return String(text || '').replace(/\d+/g, '#').slice(0, 160); }
 function topFrameKey(stack) { const f = stack?.[0]; return f ? `${f.url || ''}:${f.lineNumber || ''}:${f.columnNumber || ''}` : ''; }
@@ -80,22 +81,15 @@ function causesFromEvent(event, snapshotHref) {
     return causes;
 }
 
-function contextCauses(snapshot, snapshotHref) {
+function contextCauses(snapshot, snapshotHref, profileId) {
     const causes = [];
     if (!snapshot) return causes;
     if (snapshot.isLikelyBlank) causes.push(makeCause({ id: 'context:blank', kind: 'bridge', priority: 'P0', title: '疑似白屏', summary: '页面已加载完成，但 DOM 和文本内容非常少。', owner: '前端启动链路', reason: '入口渲染链路没有正常完成。', next: '检查入口 JS/chunk、Vue 挂载、路由守卫和启动接口。', evidence: [snapshot], events: [] }));
     if (snapshot.href?.includes('error.html')) causes.push(makeCause({ id: 'context:error-html', kind: 'bridge', priority: 'P0', title: '进入 error.html', summary: decodeErrorPage(snapshot.href), owner: '前端启动链路', reason: '业务主动跳转到错误页。', next: '解析 err 参数，回溯进入错误页前的接口、Bridge 和路由参数。', evidence: [{ href: snapshot.href }], events: [] }));
     if (!snapshot.globals?.android) causes.push(makeCause({ id: 'bridge:missing-window', kind: 'bridge', priority: 'P1', title: 'Android Bridge 缺失', summary: 'window.android 不存在。', owner: 'Android 容器 / WebView', reason: '设备 WebView 内缺少 bridge 会导致取 token、设备信息、页面完成通知失败。', next: '确认 Android 是否调用 addJavascriptInterface 注入 window.android。', evidence: [snapshot.globals], events: [] }));
-    else { const missing = Object.entries(snapshot.androidMethods || {}).filter(([, ok]) => !ok).map(([name]) => name); if (missing.length) causes.push(makeCause({ id: `bridge:missing-methods:${missing.join(',')}`, kind: 'bridge', priority: 'P1', title: 'Bridge 方法缺失', summary: `缺少：${missing.join(', ')}`, owner: 'Android Bridge / 前端兼容', reason: '前端可能调用了当前 Android 容器未提供的方法。', next: bridgeNext(missing), evidence: [snapshot.androidMethods], events: [] })); }
+    else { const missing = Object.entries(snapshot.androidMethods || {}).filter(([, ok]) => !ok).map(([name]) => name); if (missing.length) causes.push(makeCause({ id: `bridge:missing-methods:${missing.join(',')}`, kind: 'bridge', priority: 'P1', title: 'Bridge 方法缺失', summary: `缺少：${missing.join(', ')}`, owner: 'Android Bridge / 前端兼容', reason: '前端可能调用了当前 Android 容器未提供的方法。', next: getBridgeAction(missing, profileId), evidence: [snapshot.androidMethods], events: [] })); }
     for (const item of snapshot.resourceFailures || []) causes.push(makeCause({ id: `resource:performance:${normalizeUrl(item.name, snapshotHref)}`, kind: 'resource', priority: 'P2', title: '资源疑似未加载', summary: item.name, owner: '静态资源 / 缓存', reason: 'performance 中出现 transferSize=0 的资源。', next: '确认资源是否 404、缓存是否过期或被 WebView 拦截。', evidence: [item], events: [] }));
     return causes;
-}
-
-function bridgeNext(missing, profileId) {
-    if (profileId === 'yarward-ntv-frontend') return '确认 MySDK、getDeviceInfo、getOrgId、getAccessToken 和 launchFinished 调用时机。';
-    if (profileId === 'zhbf-bedhead-frontend') return '确认 writeLog、getDeviceInfo、getOrgId、getAccessToken 是否由 Android 注入。';
-    if (profileId === 'zhbf-fontend') return '确认 pageLoadFinished、toLogInE 和 token/orgId 获取方法是否存在。';
-    return `确认 Android 注入的方法是否和前端调用一致：${missing.join(', ')}。`;
 }
 
 /**
@@ -116,7 +110,7 @@ export function useRootCauses() {
                 buckets.set(existing.id, existing);
             }
         }
-        for (const cause of contextCauses(snapshot, snapshotHref)) {
+        for (const cause of contextCauses(snapshot, snapshotHref, profileId)) {
             const existing = buckets.get(cause.id) || cause;
             if (existing !== cause) { existing.count += cause.count; existing.evidence.push(...cause.evidence); }
             buckets.set(existing.id, existing);

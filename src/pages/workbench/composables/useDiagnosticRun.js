@@ -1,10 +1,11 @@
 import { ref } from 'vue';
 import { buildDiagnosticRun, makeEvidenceEvent, toPlainValue } from '@/shared/utils/diagnostic-run.mjs';
+import { LRUCache } from '@/shared/utils/ring-buffer.js';
 
 export function useDiagnosticRun(config) {
     const runId = ref('');
     const savedRun = ref(null);
-    const lastEventIds = new Set();
+    const lastEventIds = new LRUCache({ maxSize: 10000 });
 
     async function createRun(profile) {
         const api = window.electronAPI;
@@ -36,7 +37,7 @@ export function useDiagnosticRun(config) {
             .map(makeEvidenceEvent)
             .filter(event => {
                 if (lastEventIds.has(event.id)) return false;
-                lastEventIds.add(event.id);
+                lastEventIds.set(event.id, true);
                 return true;
             });
 

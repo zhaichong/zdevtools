@@ -19,11 +19,12 @@ export function useCdpClient(port, targetId, options = {}) {
 
     // 环形缓冲区：O(1) push + 自动淘汰，避免 Array.splice 的 O(n) 开销
     const eventBuffer = new RingBuffer(2000);
-    let pushCount = 0;
 
     let ws = null;
     let id = 1;
-    const pending = new Map();
+    let closed = false;           // 标记已关闭，阻止重连
+    let reconnectTimer = null;    // 跟踪重连定时器，close() 时取消
+    const pending = new Map();    // msgId -> { resolve, reject, timeoutId }
     const listeners = new Map(); // method -> Set<callback>
 
     function onEvent(method, callback) {
@@ -40,6 +41,16 @@ export function useCdpClient(port, targetId, options = {}) {
         listeners.clear();
     }
 
+    let syncTimer = null;
+    function scheduleSync() {
+        if (!syncTimer) {
+            syncTimer = setTimeout(() => {
+                syncTimer = null;
+                events.value = eventBuffer.toArray();
+            }, 100);
+        }
+    }
+
     function onMessage(event) {
         let payload;
         try {
@@ -50,6 +61,7 @@ export function useCdpClient(port, targetId, options = {}) {
         if (payload.id && pending.has(payload.id)) {
             const p = pending.get(payload.id);
             pending.delete(payload.id);
+            clearTimeout(p.timeoutId); // 响应到达，清除超时定时器
             payload.error ? p.reject(new Error(payload.error.message)) : p.resolve(payload.result);
             return;
         }
@@ -64,11 +76,7 @@ export function useCdpClient(port, targetId, options = {}) {
             const normalized = normalizeCdpEvent(payload, { includeTime });
             if (normalized) {
                 eventBuffer.push(normalized);
-                pushCount++;
-                // 每 50 次 push 批量同步一次到 Vue ref，避免每次事件都触发 O(n) 的数组操作
-                if (pushCount % 50 === 0) {
-                    events.value = eventBuffer.toArray();
-                }
+                scheduleSync();
             }
         }
     }
@@ -79,18 +87,21 @@ export function useCdpClient(port, targetId, options = {}) {
             const maxAttempts = 5;
             const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
             const wsUrl = `${protocol}://${location.host}/ws-proxy/${port}/devtools/page/${targetId}`;
+            closed = false; // 重置关闭标记，允许新连接
 
             function tryConnect() {
+                if (closed) return; // 已关闭则不再创建新连接
                 attempts++;
                 ws = new WebSocket(wsUrl);
 
                 const timeoutMs = connectTimeout * attempts; // 递增超时
                 const timer = setTimeout(() => {
                     ws.close();
+                    if (closed) return;
                     if (attempts < maxAttempts) {
                         const delay = Math.min(1000 * Math.pow(2, attempts - 1), 10000);
                         console.log(`[cdp] connect timeout, retrying in ${delay}ms (attempt ${attempts}/${maxAttempts})`);
-                        setTimeout(tryConnect, delay);
+                        reconnectTimer = setTimeout(tryConnect, delay);
                     } else {
                         reject(new Error(`CDP connect failed after ${maxAttempts} attempts`));
                     }
@@ -98,6 +109,7 @@ export function useCdpClient(port, targetId, options = {}) {
 
                 ws.onopen = () => {
                     clearTimeout(timer);
+                    if (closed) { ws.close(); return; } // 如果在等待期间被 close()
                     connected.value = true;
                     console.log(`[cdp] connected on attempt ${attempts}`);
                     // 重连后自动重新启用 CDP domains
@@ -118,16 +130,19 @@ export function useCdpClient(port, targetId, options = {}) {
                 ws.onclose = (event) => {
                     connected.value = false;
                     clearTimeout(timer);
-                    // 清理未完成的请求
-                    for (const p of pending.values()) p.reject(new Error('CDP connection closed'));
+                    // 清理未完成的请求及其超时定时器
+                    for (const p of pending.values()) {
+                        clearTimeout(p.timeoutId);
+                        p.reject(new Error('CDP connection closed'));
+                    }
                     pending.clear();
 
-                    // 正常关闭(code 1000)或已达最大重试次数则不重连
-                    if (event.code === 1000 || attempts >= maxAttempts) return;
+                    // 已关闭、正常关闭(code 1000)、或已达最大重试次数则不重连
+                    if (closed || event.code === 1000 || attempts >= maxAttempts) return;
 
                     const delay = Math.min(1000 * Math.pow(2, attempts - 1), 10000);
                     console.log(`[cdp] disconnected (code=${event.code}), reconnecting in ${delay}ms (attempt ${attempts}/${maxAttempts})`);
-                    setTimeout(tryConnect, delay);
+                    reconnectTimer = setTimeout(tryConnect, delay);
                 };
             }
 
@@ -142,20 +157,21 @@ export function useCdpClient(port, targetId, options = {}) {
                 reject(new Error('CDP connection is not open'));
                 return;
             }
-            pending.set(msgId, { resolve, reject });
-            try {
-                ws.send(JSON.stringify({ id: msgId, method, params }));
-            } catch (error) {
-                pending.delete(msgId);
-                reject(error);
-                return;
-            }
-            setTimeout(() => {
+            const timeoutId = setTimeout(() => {
                 if (pending.has(msgId)) {
                     pending.delete(msgId);
                     reject(new Error(`${method} timeout`));
                 }
             }, sendTimeout);
+            pending.set(msgId, { resolve, reject, timeoutId });
+            try {
+                ws.send(JSON.stringify({ id: msgId, method, params }));
+            } catch (error) {
+                clearTimeout(timeoutId);
+                pending.delete(msgId);
+                reject(error);
+                return;
+            }
         });
     }
 
@@ -180,6 +196,15 @@ export function useCdpClient(port, targetId, options = {}) {
     }
 
     function close() {
+        closed = true;
+        // 取消待触发的重连定时器
+        if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+        // 取消 debounce sync 定时器
+        if (syncTimer) { clearTimeout(syncTimer); syncTimer = null; }
+        // 清除所有 pending 请求的超时定时器
+        for (const p of pending.values()) clearTimeout(p.timeoutId);
+        pending.clear();
+        // 关闭 WebSocket
         if (ws && ws.readyState <= 1) ws.close();
     }
 

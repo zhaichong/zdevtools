@@ -34,6 +34,7 @@ export function useConsoleStream(cdpClient) {
     const paused = ref(false);
 
     let setupDone = false;
+    let unsubs = [];
     const LEVEL_LABELS = {
         error: 'Error', warning: 'Warn', warn: 'Warn', info: 'Info',
         log: 'Log', debug: 'Debug', dir: 'Dir', table: 'Table'
@@ -82,13 +83,13 @@ export function useConsoleStream(cdpClient) {
     function setup() {
         if (setupDone) return;
         setupDone = true;
-        cdpClient.onEvent('Runtime.consoleAPICalled', (params) => {
+        unsubs.push(cdpClient.onEvent('Runtime.consoleAPICalled', (params) => {
             const data = normalizeConsoleApi(params);
             addEntry(data);
-        });
+        }));
 
         // Also capture Runtime.exceptionThrown as console errors
-        cdpClient.onEvent('Runtime.exceptionThrown', (params) => {
+        unsubs.push(cdpClient.onEvent('Runtime.exceptionThrown', (params) => {
             const details = params.exceptionDetails || {};
             const message = details.exception?.description || details.text || 'Runtime exception';
             addEntry({
@@ -98,7 +99,14 @@ export function useConsoleStream(cdpClient) {
                 stack: details.stackTrace?.callFrames || [],
                 url: details.url
             });
-        });
+        }));
+    }
+
+    function dispose() {
+        unsubs.forEach(unsub => unsub());
+        unsubs = [];
+        setupDone = false;
+        clear();
     }
 
     function clear() {
@@ -171,6 +179,7 @@ export function useConsoleStream(cdpClient) {
         setup,
         clear,
         togglePause,
-        execute
+        execute,
+        dispose
     };
 }

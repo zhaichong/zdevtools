@@ -21,6 +21,7 @@ export function useNetworkMonitor(cdpClient) {
 
     const requestMap = new Map(); // requestId -> index in requests array
     let setupDone = false;
+    let unsubs = [];
 
     const TYPE_MAP = {
         xhr: ['XHR', 'Fetch'],
@@ -95,16 +96,16 @@ export function useNetworkMonitor(cdpClient) {
     function setup() {
         if (setupDone) return;
         setupDone = true;
-        cdpClient.onEvent('Network.requestWillBeSent', (params) => {
+        unsubs.push(cdpClient.onEvent('Network.requestWillBeSent', (params) => {
             const data = normalizeRequestWillBeSent(params);
             // 捕获 POST/PUT 请求体
             if (params.request?.postData) {
                 data.requestBody = params.request.postData;
             }
             addRequest(data);
-        });
+        }));
 
-        cdpClient.onEvent('Network.responseReceived', (params) => {
+        unsubs.push(cdpClient.onEvent('Network.responseReceived', (params) => {
             const data = normalizeResponseReceived(params);
             updateRequest(data.requestId, {
                 status: data.status,
@@ -115,9 +116,9 @@ export function useNetworkMonitor(cdpClient) {
                 protocol: data.protocol,
                 size: data.encodedDataLength
             });
-        });
+        }));
 
-        cdpClient.onEvent('Network.loadingFinished', (params) => {
+        unsubs.push(cdpClient.onEvent('Network.loadingFinished', (params) => {
             const data = normalizeLoadingFinished(params);
             const idx = requestMap.get(data.requestId);
             if (idx != null && idx < requests.value.length) {
@@ -126,9 +127,9 @@ export function useNetworkMonitor(cdpClient) {
                 entry.size = data.encodedDataLength || entry.size;
                 entry.duration = entry.startTime ? Math.round((data.endTime - entry.startTime) * 1000) : 0;
             }
-        });
+        }));
 
-        cdpClient.onEvent('Network.loadingFailed', (params) => {
+        unsubs.push(cdpClient.onEvent('Network.loadingFailed', (params) => {
             const data = normalizeLoadingFailed(params);
             const idx = requestMap.get(data.requestId);
             if (idx != null && idx < requests.value.length) {
@@ -139,7 +140,14 @@ export function useNetworkMonitor(cdpClient) {
                 entry.blockedReason = data.blockedReason;
                 entry.duration = entry.startTime ? Math.round((data.endTime - entry.startTime) * 1000) : 0;
             }
-        });
+        }));
+    }
+
+    function dispose() {
+        unsubs.forEach(unsub => unsub());
+        unsubs = [];
+        setupDone = false;
+        clear();
     }
 
     function clear() {
@@ -180,6 +188,7 @@ export function useNetworkMonitor(cdpClient) {
         setup,
         clear,
         togglePause,
-        fetchResponseBody
+        fetchResponseBody,
+        dispose
     };
 }

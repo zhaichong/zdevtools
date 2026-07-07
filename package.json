@@ -21,6 +21,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "src/main/**/*",
       "src/server/**/*",
       "dist/**/*",
       "devtools/**/*",
@@ -54,7 +55,7 @@
       }
     ]
   },
-  "author": "Antigravity",
+  "author": "zhaichong",
   "license": "ISC",
   "repository": {
     "type": "git",

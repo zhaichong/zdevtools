@@ -2,8 +2,8 @@ const express = require('express');
 const { createServer } = require('http');
 const path = require('path');
 const { getDeviceTargets, startLogStream, stopLogStream, findFreePort } = require('./deviceManager.js');
-const { createWsProxy, mountWsUpgrade } = require('./proxy.js');
-const { requestTimeout, asyncHandler, errorHandler } = require('./middleware.js');
+const { createWsProxy, mountWsUpgrade, closeAllSockets } = require('./proxy.js');
+const { errorHandler } = require('./middleware.js');
 
 /** @type {import('http').Server|null} */
 let httpServer = null;
@@ -26,7 +26,7 @@ async function startServer() {
             }
             if (filePath.includes('devtools')) {
                 res.setHeader('Content-Security-Policy',
-                    "default-src 'self' http://127.0.0.1:* ws://127.0.0.1:* data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*"
+                    "default-src 'self' http://127.0.0.1:* ws://127.0.0.1:* data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http://127.0.0.1:*; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*"
                 );
             }
         }
@@ -60,6 +60,7 @@ async function startServer() {
  */
 function closeServer() {
     return new Promise((resolve) => {
+        closeAllSockets();
         if (!httpServer) return resolve();
         httpServer.close((err) => {
             if (err) console.error('[server] close error:', err.message);

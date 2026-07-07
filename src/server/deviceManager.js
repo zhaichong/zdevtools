@@ -1,7 +1,7 @@
 const http = require('http');
 const adbDriver = require('./drivers/adbDriver.js');
 const hdcDriver = require('./drivers/hdcDriver.js');
-
+const { FORWARD_PORT_MIN, FORWARD_PORT_MAX } = require('./constants.js');
 const TARGET_TIMEOUT_MS = 1000;
 const drivers = [adbDriver, hdcDriver];
 
@@ -91,7 +91,7 @@ async function preAllocatePorts(socketEntries, existingForwards) {
     }
 
     // 为没有已有 forward 的 socket 分配新端口
-    let searchStartPort = 9220;
+    let searchStartPort = FORWARD_PORT_MIN;
     for (const entry of socketEntries) {
         const key = `${entry.deviceId}:${entry.socket}`;
         if (portMap.has(key)) continue;
@@ -102,8 +102,8 @@ async function preAllocatePorts(socketEntries, existingForwards) {
             freePort = await findFreePort(searchStartPort);
         }
         
-        if (freePort > 9399) {
-            return { ok: false, portMap, error: 'No available local port in 9220-9399' };
+        if (freePort > FORWARD_PORT_MAX) {
+            return { ok: false, portMap, error: `No available local port in ${FORWARD_PORT_MIN}-${FORWARD_PORT_MAX}` };
         }
         
         usedPorts.add(freePort);
@@ -113,7 +113,7 @@ async function preAllocatePorts(socketEntries, existingForwards) {
     return { ok: true, portMap };
 }
 
-async function processDevice(driver, baseDevice, portMap) {
+async function processDevice(driver, baseDevice, portMap, preDiscoveredSockets) {
     const device = {
         ...baseDevice, driver: driver.type, model: '', manufacturer: '', androidVersion: '', sdkVersion: '',
         processes: [], diagnostics: []
@@ -135,14 +135,8 @@ async function processDevice(driver, baseDevice, portMap) {
         device.diagnostics.push(`Failed to get device props: ${e.message}`);
     }
 
-    // 发现 WebView 调试 socket
-    const socketsInfo = await limitCli(() => driver.discoverSockets(device.id));
-    if (!socketsInfo.ok) {
-        device.diagnostics.push(`Failed to read WebView sockets: ${socketsInfo.error}`);
-        return device;
-    }
-
-    const sockets = socketsInfo.sockets;
+    // 复用 Phase 2 已发现的 sockets，避免重复执行 cat /proc/net/unix
+    const sockets = preDiscoveredSockets || [];
     if (sockets.length === 0) {
         device.diagnostics.push('No debuggable WebView target found. Check WebView.setWebContentsDebuggingEnabled(true).');
     }
@@ -158,17 +152,6 @@ async function processDevice(driver, baseDevice, portMap) {
             forwardOk: false, targets: [], diagnostics: []
         };
 
-        // 快速存活探测 (PID 嗅探)
-        if (processHint.startsWith('pid:')) {
-            const pid = processHint.substring(4);
-            const isAlive = await limitCli(async () => {
-                const shellCheck = await driver.discoverSockets(device.id); // Re-using shell runner logic via driver?
-                // Actually driver doesn't expose shell. We can do it directly or rely on timeout.
-                // Since driver doesn't expose shell execution directly, let's just rely on the reduced HTTP timeout for safety,
-                // but we can simulate the check if we had shell access. To keep it clean, we'll continue.
-                return true; 
-            });
-        }
 
         if (!portInfo) {
             processInfo.diagnostics.push('Port not pre-allocated');
@@ -215,7 +198,21 @@ async function processDevice(driver, baseDevice, portMap) {
     return device;
 }
 
+// 发现互斥锁：防止并发 getDeviceTargets 导致端口冲突和 forward 重复
+let discoveryLock = null;
+
 async function getDeviceTargets(driverType = 'adb') {
+    if (discoveryLock) {
+        console.log('[DeviceManager] Discovery already in progress, reusing result...');
+        return discoveryLock;
+    }
+    discoveryLock = _doGetDeviceTargets(driverType).finally(() => {
+        discoveryLock = null;
+    });
+    return discoveryLock;
+}
+
+async function _doGetDeviceTargets(driverType = 'adb') {
     const startTime = Date.now();
     const diagnostics = {
         adbAvailable: false,
@@ -302,14 +299,15 @@ async function getDeviceTargets(driverType = 'adb') {
         diagnostics.messages.push({ level: 'warn', message: `Port allocation warning: ${portError}` });
     }
 
-    // Phase 4: 并行处理所有设备
+    // Phase 4: 并行处理所有设备（复用 Phase 2 已发现的 sockets，避免重复 CLI 调用）
     const devices = await Promise.all(
         allParsedDevices.map(baseDevice => {
             const driver = baseDevice._driver;
             const deviceClean = { ...baseDevice };
             delete deviceClean._driver;
             deviceClean.driver = driver.type;
-            return processDevice(driver, deviceClean, portMap);
+            const discovered = socketDiscoveries.find(d => d.deviceId === baseDevice.id);
+            return processDevice(driver, deviceClean, portMap, discovered?.sockets || []);
         })
     );
 
@@ -402,44 +400,60 @@ function stopLogStream(deviceId, webContents) {
 }
 
 // 从原 adb.js 中继承 findFreePort 给外层 index.js 使用
-function findFreePort(startPort, maxPort = startPort + 500) {
+async function findFreePort(startPort, maxPort = startPort + 500) {
     const net = require('net');
-    return new Promise((resolve, reject) => {
-        if (startPort > maxPort) {
-            return reject(new Error('No free ports available in range'));
+    let currentPort = startPort;
+
+    while (currentPort <= maxPort) {
+        try {
+            return await new Promise((resolve, reject) => {
+                const server = net.createServer();
+                server.unref();
+                server.on('error', reject);
+                server.listen(currentPort, '127.0.0.1', () => {
+                    const port = server.address().port;
+                    server.close(() => resolve(port));
+                });
+            });
+        } catch (e) {
+            currentPort++;
         }
-        const server = net.createServer();
-        server.unref();
-        server.on('error', () => resolve(findFreePort(startPort + 1, maxPort)));
-        server.listen(startPort, '127.0.0.1', () => {
-            const port = server.address().port;
-            server.close(() => resolve(port));
-        });
-    });
+    }
+    throw new Error('No free ports available in range');
 }
 
 async function teardown() {
     for (const driver of drivers) {
+        // 先杀死所有日志子进程，防止退出后成为孤儿进程
+        if (driver.killAllLogStreams) {
+            try { driver.killAllLogStreams(); } catch (e) {
+                console.error(`[teardown] ${driver.type} killAllLogStreams error:`, e.message || e);
+            }
+        }
+
+        // 再清理端口转发
         if (driver.type === 'adb') {
-            const { runAdb } = require('./drivers/adbDriver.js');
-            // Assuming we still have runAdb inside adbDriver, wait, adbDriver exports an object. 
-            // We should add teardown to drivers, or just run the command natively here.
-            const { execFile } = require('child_process');
-            await new Promise(r => execFile(driver.getAdbPath ? driver.getAdbPath() : 'adb', ['forward', '--remove-all'], () => r()));
+            // 复用 driver 自身的 getAdbPath（__dirname 层级正确），避免重复拼路径
+            if (driver.removeAllForwards) {
+                await driver.removeAllForwards().catch(e => {
+                    console.error('[teardown] adb forward --remove-all error:', e.message || e);
+                });
+            }
         } else if (driver.type === 'hdc') {
-            // Note: HDC doesn't have a reliable 'fport rm --all', we might just try to clear what we know, or skip if unsupported
-            // Actually HDC has `fport rm` but no `--all`. We'll skip for now or gracefully handle it.
-            // Let's do our best effort:
             try {
                 const forwards = await driver.listForwards();
                 for (const f of forwards) {
-                    if (f.localPort >= 9220 && f.localPort <= 9399) {
+                    if (f.localPort >= FORWARD_PORT_MIN && f.localPort <= FORWARD_PORT_MAX) {
                         await driver.removeForward(f.id === '*' ? '' : f.id, f.localPort).catch(() => {});
                     }
                 }
-            } catch(e) {}
+            } catch (e) {
+                console.error('[teardown] hdc cleanup error:', e.message || e);
+            }
         }
     }
+    // 清空路由映射，防止 Map 泄漏
+    logStreamMap.clear();
 }
 
 module.exports = {
