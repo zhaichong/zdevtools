@@ -1,0 +1,20 @@
+{
+  "name": "ztools",
+  "version": "1.0.1",
+  "description": "Local Webview Inspector",
+  "main": "main.js",
+  "author": "zhaichong",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zhaichong/zdevtools.git"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "express": "^4.19.2",
+    "http-proxy": "^1.18.1"
+  },
+  "volta": {
+    "node": "20.20.2"
+  }
+}
