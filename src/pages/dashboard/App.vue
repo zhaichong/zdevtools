@@ -31,10 +31,6 @@
                         </span>
                     </div>
                     <div class="scan-actions">
-                        <select v-model="activeDriver" @change="setDriver(activeDriver)" class="btn secondary" style="margin-right: 8px;">
-                            <option value="adb">ADB 通道 (Android)</option>
-                            <option value="hdc">HDC 通道 (HarmonyOS)</option>
-                        </select>
                         <button class="btn secondary" type="button" @click="fetchTargets">重新扫描</button>
                     </div>
                 </header>
@@ -42,7 +38,7 @@
                 <div class="devices-list">
                     <div v-if="!data?.devices?.length" class="empty-state">
                         <strong>{{ data ? '未检测到设备' : '正在扫描设备' }}</strong>
-                        <span>{{ data ? (activeDriver === 'adb' ? '请确认 USB 已连接，开启 USB 调试，并在手机上允许此电脑调试。' : '请确认已开启 HarmonyOS 开发者模式及 USB 调试。') : '正在查找可调试设备。' }}</span>
+                        <span>{{ data ? '请确认 USB 已连接，开启 USB 调试 / HDC 调试模式，并在手机上允许电脑调试。' : '正在查找可调试设备。' }}</span>
                     </div>
                     <DeviceCard
                         v-for="device in data?.devices || []"
@@ -63,7 +59,7 @@ import { useUpdate } from './composables/useUpdate.js';
 import TopBar from './components/TopBar.vue';
 import DeviceCard from './components/DeviceCard.vue';
 
-const { data, status, diagnostics, devicesTotal, targetsTotal, lastScanTime, activeDriver, setDriver, fetchTargets } = useDevices();
+const { data, status, diagnostics, devicesTotal, targetsTotal, lastScanTime, fetchTargets } = useDevices();
 const errorCount = computed(() => diagnostics.value.filter(item => item.isError).length);
 
 const {

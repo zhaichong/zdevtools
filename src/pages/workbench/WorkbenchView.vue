@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted, toRef } from 'vue';
 import { useWorkbenchSession } from './composables/useWorkbenchSession.js';
 import { useReport } from './composables/useReport.js';
 import RailNav from './components/RailNav.vue';
@@ -12,15 +12,24 @@ import TimelinePanel from './components/TimelinePanel.vue';
 import ReplayPanel from './components/ReplayPanel.vue';
 import ReportPanel from './components/ReportPanel.vue';
 
-const params = new URLSearchParams(location.search);
+const props = defineProps({
+    target: {
+        type: Object,
+        required: true
+    }
+});
+
+const emit = defineEmits(['close']);
+
+// Map the target prop to a reactive config object that the rest of the code expects
 const config = reactive({
-    port: params.get('port'),
-    targetId: params.get('targetId'),
-    deviceId: params.get('deviceId') || '',
-    title: params.get('title') || 'Untitled',
-    url: params.get('url') || '',
-    model: params.get('model') || '',
-    driverType: params.get('driverType') || ''
+    port: props.target.port,
+    targetId: props.target.targetId,
+    deviceId: props.target.deviceId || '',
+    title: props.target.title || 'Untitled',
+    url: props.target.url || '',
+    model: props.target.model || '',
+    driverType: props.target.driverType || ''
 });
 
 const activePanel = ref('diagnosis');
@@ -35,8 +44,25 @@ const { buildMarkdown, buildCauseText } = useReport();
 const {
     statusText, statusType, report, snapshot, profile, probe,
     cdpClient, logcatManager, diagnosticRun, sourceStats,
-    collect, onRefresh, renderReport, setStatus, handleSourceMapFiles
+    collect, onRefresh, onPanelChange, renderReport, setStatus, handleSourceMapFiles
 } = useWorkbenchSession(config);
+
+// 展开 logcatManager/cdpClient/diagnosticRun 中的 ref，模板中无需显式 .value
+const logEntries = toRef(() => logcatManager.entries.value);
+const logFiltered = toRef(() => logcatManager.filteredEntries.value);
+const logSearchText = toRef(() => logcatManager.searchText.value);
+const logFilterLevel = toRef(() => logcatManager.filterLevel.value);
+const logPaused = toRef(() => logcatManager.paused.value);
+const logAutoScroll = toRef(() => logcatManager.autoScroll.value);
+const logMatchIndex = toRef(() => logcatManager.matchIndex.value);
+const logMatchCount = toRef(() => logcatManager.matchCount.value);
+const logLoading = toRef(() => logcatManager.loading.value);
+const logError = toRef(() => logcatManager.error.value);
+const cdpConnected = toRef(() => cdpClient.connected.value);
+const diagnosticRunId = toRef(() => diagnosticRun.runId.value);
+
+function setLogSearchText(value) { logcatManager.searchText.value = value; }
+function setLogFilterLevel(value) { logcatManager.filterLevel.value = value; }
 
 function initSelectedCauseId(causesList) {
     if (!selectedCauseId.value && causesList[0]) {
@@ -66,19 +92,23 @@ const selectedCause = computed(() =>
 );
 
 const counts = computed(() => {
-    const c = causes.value;
-    const byKind = kind => c.filter(item => item.kind === kind).length;
-    return {
-        causes: c.length,
-        js: byKind('js') + byKind('vue') + byKind('low-signal'),
-        network: byKind('network'),
-        resource: byKind('resource'),
-        bridge: byKind('bridge'),
-        source: sourceStats.matched,
-        timeline: breadcrumbs.value.length,
-        logcat: logcatManager.entries.value.length
-    };
-});
+        const c = causes.value;
+        // 单次 reduce 替代 5 次 filter 遍历
+        const kinds = { js: 0, vue: 0, 'low-signal': 0, network: 0, resource: 0, bridge: 0 };
+        for (const item of c) {
+            if (kinds[item.kind] !== undefined) kinds[item.kind]++;
+        }
+        return {
+            causes: c.length,
+            js: kinds.js + kinds.vue + kinds['low-signal'],
+            network: kinds.network,
+            resource: kinds.resource,
+            bridge: kinds.bridge,
+            source: sourceStats.matched,
+            timeline: breadcrumbs.value.length,
+            logcat: logEntries.value.length
+        };
+    });
 
 async function evaluateForCause(expression) {
     const result = await cdpClient.send('Runtime.evaluate', {
@@ -95,6 +125,7 @@ function onActivateEmbeddedDevtools() {
 function onSelectPanel(panel) {
     activePanel.value = panel;
     if (panel === 'devtools') onActivateEmbeddedDevtools();
+    onPanelChange(panel);
 }
 async function onCopyMarkdown() {
     await navigator.clipboard.writeText(reportMarkdown.value);
@@ -127,31 +158,28 @@ async function onSourceMapUpload(event) {
 </script>
 
 <template>
-    <div class="root-workbench">
-        <header class="root-topbar">
-            <div class="target-title">
-                <strong>ztools</strong>
-            </div>
+    <div class="flex flex-col w-full h-full bg-zinc-50 text-zinc-900">
+        <Teleport to="#workbench-actions">
+            <label class="cursor-pointer text-xs bg-white border border-zinc-200 hover:bg-zinc-50 text-zinc-800 px-3 py-1.5 rounded transition-colors shadow-sm" title="上传 .map 文件或选择 dist 目录">
+                上传 SourceMap
+                <input type="file" class="hidden" multiple webkitdirectory accept=".map,application/json" @change="onSourceMapUpload">
+            </label>
+            <span class="text-xs px-2 py-1.5 rounded border border-zinc-200 bg-white shadow-sm" :class="statusType === 'error' ? 'text-danger border-danger/30 bg-danger/5' : 'text-zinc-500'">{{ statusText }}</span>
+            <button @click="emit('close')" class="text-zinc-500 hover:text-zinc-900 p-1.5 rounded hover:bg-zinc-200 transition-colors ml-2" title="关闭调试会话">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+        </Teleport>
 
-            <div class="h-tools">
-                <label class="btn secondary upload-btn" title="上传 .map 文件或选择 dist 目录">
-                    上传 SourceMap
-                    <input type="file" multiple webkitdirectory accept=".map,application/json" @change="onSourceMapUpload">
-                </label>
-                <span class="status-badge" :class="statusType">{{ statusText }}</span>
-            </div>
-        </header>
-
-        <div class="workbench-main">
+        <div class="flex flex-1 overflow-hidden">
             <RailNav
                 :active-panel="activePanel"
                 :counts="counts"
                 @select-panel="onSelectPanel"
             />
-            <section class="panel-stage">
-                <div class="panel-area">
+            <section class="flex-1 relative bg-white border-l border-zinc-200 flex overflow-hidden">
+                <div class="flex-1 w-full h-full relative overflow-hidden flex flex-col">
                     <DevToolsFrame
-                        :class="{ 'off-screen': activePanel !== 'devtools' || !embeddedDevtoolsOpen }"
+                        v-if="activePanel === 'devtools' && embeddedDevtoolsOpen"
                         :src="devtoolsUrl"
                     />
                     <TimelinePanel
@@ -166,19 +194,20 @@ async function onSourceMapUpload(event) {
                     />
                     <LogcatView
                         v-show="activePanel === 'logs'"
-                        :entries="logcatManager.entries.value"
-                        :filtered-entries="logcatManager.filteredEntries.value"
-                        :search-text="logcatManager.searchText.value"
-                        :filter-level="logcatManager.filterLevel.value"
-                        :paused="logcatManager.paused.value"
-                        :auto-scroll="logcatManager.autoScroll.value"
-                        :match-index="logcatManager.matchIndex.value"
-                        :match-count="logcatManager.matchCount.value"
-                        :loading="logcatManager.loading.value"
-                        :error="logcatManager.error.value"
+                        :entries="logEntries"
+                        :filtered-entries="logFiltered"
+                        :search-text="logSearchText"
+                        :filter-level="logFilterLevel"
+                        :paused="logPaused"
+                        :auto-scroll="logAutoScroll"
+                        :match-index="logMatchIndex"
+                        :match-count="logMatchCount"
+                        :loading="logLoading"
+                        :error="logError"
                         :level-labels="logcatManager.LEVEL_LABELS"
-                        @update:search-text="logcatManager.searchText.value = $event"
-                        @update:filter-level="logcatManager.filterLevel.value = $event"
+                        :stats="logcatManager.stats"
+                        @update:search-text="setLogSearchText"
+                        @update:filter-level="setLogFilterLevel"
                         @toggle-pause="logcatManager.togglePause()"
                         @toggle-auto-scroll="logcatManager.toggleAutoScroll()"
                         @clear="logcatManager.clear()"
@@ -191,13 +220,13 @@ async function onSourceMapUpload(event) {
                         :config="config"
                         :snapshot="snapshot"
                         :profile="profile"
-                        :connected="cdpClient.connected.value"
+                        :connected="cdpConnected"
                     />
                     <ReportPanel
                         v-show="activePanel === 'report'"
                         :report="report"
                         :markdown="reportMarkdown"
-                        :run-id="diagnosticRun.runId.value"
+                        :run-id="diagnosticRunId"
                         @copy-markdown="onCopyMarkdown"
                         @export-run="onExportRun"
                     />
@@ -209,7 +238,7 @@ async function onSourceMapUpload(event) {
                         :report="report"
                         :active-view="'causes'"
                         :breadcrumbs="breadcrumbs"
-                        :logcat-lines="logcatManager.entries.value"
+                        :logcat-lines="logEntries"
                         :source-stats="sourceStats"
                         :on-evaluate="evaluateForCause"
                         @toggle="diagnosisOpen = !diagnosisOpen"
@@ -229,5 +258,4 @@ async function onSourceMapUpload(event) {
 </template>
 
 <style scoped>
-.off-screen { position: absolute !important; left: -9999px !important; visibility: hidden !important; pointer-events: none !important; }
 </style>

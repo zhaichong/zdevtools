@@ -2,7 +2,7 @@ import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { nowTime } from '@/shared/utils/format.js';
 
 /**
- * Dashboard 设备数据获取 + 轮询
+ * 设备数据获取 + 轮询
  */
 export function useDevices() {
     const data = ref(null);
@@ -14,14 +14,6 @@ export function useDevices() {
     let pollingTimer = null;
     let fetchInFlight = false;
 
-    const activeDriver = ref(localStorage.getItem('ztools-driver') || 'adb');
-
-    function setDriver(driver) {
-        activeDriver.value = driver;
-        localStorage.setItem('ztools-driver', driver);
-        fetchTargets();
-    }
-
     function setStatus(text, type = '') {
         status.value = { text, type };
     }
@@ -31,7 +23,8 @@ export function useDevices() {
         fetchInFlight = true;
         if (!silent) setStatus('扫描中', 'busy');
         try {
-            const result = await window.electronAPI.getTargets(activeDriver.value);
+            const result = await window.electronAPI?.getTargets?.('all');
+            if (!result) throw new Error('electronAPI not available');
             data.value = result;
             processData(result);
             setStatus('运行正常', '');
@@ -74,7 +67,7 @@ export function useDevices() {
         }
 
         if (!d.devices?.length) {
-            diags.push({ message: '未检测到设备。请确认 USB 已连接、已开启 USB 调试，并允许电脑调试。', isError: false });
+            diags.push({ message: '未检测到设备。请确认 USB 已连接、已开启调试，并允许电脑调试。', isError: false });
         }
 
         diagnostics.value = diags;
@@ -100,7 +93,7 @@ export function useDevices() {
         if (document.hidden) {
             stopPolling();
         } else {
-            fetchTargets({ silent: true }); // Immediately fetch on wake
+            fetchTargets({ silent: true });
             startPolling();
         }
     }
@@ -123,10 +116,6 @@ export function useDevices() {
         devicesTotal,
         targetsTotal,
         lastScanTime,
-        activeDriver,
-        setDriver,
-        fetchTargets,
-        startPolling,
-        stopPolling
+        fetchTargets
     };
 }

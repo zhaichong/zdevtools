@@ -3,24 +3,24 @@
 @tailwind utilities;
 
 :root {
-    --bg: #ffffff;
-    --panel: #f9f9f9;
-    --panel-strong: #f3f4f6;
-    --panel-soft: #ffffff;
-    --border: #e5e7eb;
-    --border-strong: #d1d5db;
-    --text: #111827;
-    --muted: #6b7280;
-    --muted-strong: #4b5563;
-    --accent: #000000;
-    --accent-strong: #111827;
-    --danger: #dc2626;
-    --danger-bg: #fee2e2;
-    --warning: #d97706;
-    --warning-bg: #fef3c7;
-    --success: #16a34a;
-    --success-bg: #dcfce7;
-    --shadow: none;
+    --bg: #fafafa; /* zinc-50 */
+    --panel: #ffffff; /* white */
+    --panel-strong: #f4f4f5; /* zinc-100 */
+    --panel-soft: #ffffff; /* white */
+    --border: #e4e4e7; /* zinc-200 */
+    --border-strong: #d4d4d8; /* zinc-300 */
+    --text: #18181b; /* zinc-900 */
+    --muted: #71717a; /* zinc-500 */
+    --muted-strong: #3f3f46; /* zinc-700 */
+    --accent: #8b5cf6; /* violet-500 */
+    --accent-strong: #7c3aed; /* violet-600 */
+    --danger: #ef4444; /* red-500 */
+    --danger-bg: rgba(239, 68, 68, 0.1);
+    --warning: #f59e0b; /* amber-500 */
+    --warning-bg: rgba(245, 158, 11, 0.1);
+    --success: #22c55e; /* green-500 */
+    --success-bg: rgba(34, 197, 94, 0.1);
+    --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
 }
 
 * {
@@ -757,8 +757,8 @@ pre {
     padding: 12px;
     border: 1px solid var(--border);
     border-radius: 8px;
-    background: #070b14;
-    color: var(--muted-strong);
+    background: var(--panel-strong);
+    color: var(--text);
     font-size: 12px;
     white-space: pre-wrap;
     overflow-wrap: anywhere;

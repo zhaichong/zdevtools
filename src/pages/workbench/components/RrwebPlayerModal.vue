@@ -108,33 +108,47 @@ onBeforeUnmount(destroyPlayer);
 </script>
 
 <template>
-    <div class="replay-modal-backdrop" role="dialog" aria-modal="true" aria-label="场景回放">
-        <div ref="shellRef" class="replay-modal">
-            <header class="replay-modal-header">
-                <div>
-                    <h3>场景回放</h3>
-                    <p>事件 {{ events.length }} 条 · 快照 {{ fullSnapshotCount }} 个 · 时长 {{ durationText }}</p>
+    <div class="fixed inset-0 z-50 grid place-items-center p-6 bg-zinc-900/40 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="场景回放">
+        <div ref="shellRef" class="flex flex-col overflow-hidden border border-zinc-200 rounded-xl bg-white shadow-xl shadow-zinc-200 w-full max-w-6xl max-h-[90vh]">
+            <!-- Header -->
+            <header class="flex-none flex items-center justify-between gap-4 p-4 border-b border-zinc-200 bg-zinc-50/50">
+                <div class="flex flex-col">
+                    <h3 class="text-base font-semibold text-zinc-900 m-0 flex items-center gap-2">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                        场景回放
+                    </h3>
+                    <p class="text-xs text-zinc-500 font-mono mt-1 m-0">事件 {{ events.length }} 条 · 快照 {{ fullSnapshotCount }} 个 · 时长 {{ durationText }}</p>
                 </div>
-                <div class="replay-modal-actions">
-                    <button class="replay-ghost-btn" type="button" @click="loadReplay">重新加载</button>
-                    <button class="replay-close-btn" type="button" aria-label="关闭回放" @click="props.onClose">×</button>
+                <div class="flex items-center gap-2">
+                    <button class="px-3 py-1.5 text-xs font-medium rounded text-zinc-700 bg-zinc-100 hover:bg-zinc-200 transition-colors border border-transparent outline-none flex items-center gap-1.5 shadow-sm" type="button" @click="loadReplay">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                        重新加载
+                    </button>
+                    <button class="w-8 h-8 grid place-items-center rounded text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 transition-colors border border-transparent outline-none" type="button" aria-label="关闭回放" @click="props.onClose">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
                 </div>
             </header>
 
-            <main class="replay-modal-body">
-                <div v-if="isLoading" class="replay-state">
-                    <strong>正在加载回放数据</strong>
-                    <span>从本机 Electron 用户数据目录读取 rrweb 事件。</span>
+            <!-- Body -->
+            <main class="flex-1 min-h-0 grid bg-zinc-50/30 relative">
+                <div v-if="isLoading" class="absolute inset-0 grid place-content-center justify-items-center gap-3 p-6 text-center z-10">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent animate-spin"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>
+                    <strong class="text-sm font-semibold text-zinc-900">正在加载回放数据</strong>
+                    <span class="text-xs text-zinc-500">从本机 Electron 用户数据目录读取 rrweb 事件。</span>
                 </div>
 
-                <div v-else-if="errorMsg" class="replay-state replay-error">
-                    <strong>回放暂不可用</strong>
-                    <span>{{ errorMsg }}</span>
-                    <button class="btn primary" type="button" @click="loadReplay">重试</button>
+                <div v-else-if="errorMsg" class="absolute inset-0 grid place-content-center justify-items-center gap-3 p-6 text-center z-10">
+                    <div class="w-12 h-12 rounded-full border border-dashed border-warning/50 flex items-center justify-center mb-2 text-warning">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                    </div>
+                    <strong class="text-sm font-semibold text-warning">回放暂不可用</strong>
+                    <span class="text-xs text-zinc-600 max-w-md">{{ errorMsg }}</span>
+                    <button class="mt-4 px-4 py-2 text-sm font-medium rounded text-zinc-700 bg-zinc-100 hover:bg-zinc-200 transition-colors border border-transparent outline-none shadow-sm" type="button" @click="loadReplay">重试</button>
                 </div>
 
-                <div v-show="!isLoading && !errorMsg" class="replay-stage-wrap">
-                    <div ref="playerContainer" class="replay-player"></div>
+                <div v-show="!isLoading && !errorMsg" class="min-w-0 min-h-0 grid place-items-center overflow-auto p-5 custom-scrollbar">
+                    <div ref="playerContainer" class="min-w-0 min-h-0 relative z-0 rrweb-theme-override"></div>
                 </div>
             </main>
         </div>
@@ -142,137 +156,45 @@ onBeforeUnmount(destroyPlayer);
 </template>
 
 <style scoped>
-.replay-modal-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 50;
-    display: grid;
-    place-items: center;
-    padding: 24px;
-    background: rgba(15, 23, 42, 0.78);
+.custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #d4d4d8;
+    border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #a1a1aa;
 }
 
-.replay-modal {
-    width: min(1180px, calc(100vw - 48px));
-    height: min(820px, calc(100vh - 48px));
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    border: 1px solid #d7dde8;
-    border-radius: 8px;
-    background: #f8fafc;
-    box-shadow: 0 18px 42px rgba(15, 23, 42, 0.38);
-}
-
-.replay-modal-header {
-    flex: none;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 14px 16px;
-    border-bottom: 1px solid #d7dde8;
-    background: #fff;
-}
-
-.replay-modal-header h3 {
-    margin: 0;
-    color: #111827;
-    font-size: 16px;
-}
-
-.replay-modal-header p {
-    margin: 4px 0 0;
-    color: #5f6b7a;
-    font-size: 12px;
-}
-
-.replay-modal-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.replay-ghost-btn,
-.replay-close-btn {
-    border: 1px solid #d7dde8;
-    border-radius: 8px;
-    background: #fff;
-    color: #111827;
-    cursor: pointer;
-}
-
-.replay-ghost-btn {
-    padding: 7px 10px;
-    font-size: 12px;
-}
-
-.replay-close-btn {
-    width: 34px;
-    height: 34px;
-    display: grid;
-    place-items: center;
-    font-size: 22px;
-    line-height: 1;
-}
-
-.replay-ghost-btn:hover,
-.replay-close-btn:hover {
-    border-color: #2563eb;
-    color: #2563eb;
-}
-
-.replay-modal-body {
-    flex: 1;
-    min-height: 0;
-    display: grid;
-    background: #0f172a;
-}
-
-.replay-stage-wrap {
-    min-width: 0;
-    min-height: 0;
-    display: grid;
-    place-items: center;
-    overflow: auto;
-    padding: 20px;
-}
-
-.replay-player {
-    min-width: 0;
-    min-height: 0;
-}
-
-.replay-state {
-    display: grid;
-    place-content: center;
-    justify-items: center;
-    gap: 10px;
-    padding: 24px;
-    color: #cbd5e1;
-    text-align: center;
-}
-
-.replay-state strong {
-    color: #fff;
-    font-size: 15px;
-}
-
-.replay-error {
-    color: #fbbf24;
-}
-
-:deep(.rr-player) {
+/* rrweb UI overwrites for light mode */
+.rrweb-theme-override :deep(.rr-player) {
     float: none;
     border-radius: 8px;
-    box-shadow: none;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+    background: #ffffff;
+    border: 1px solid rgba(228, 228, 231, 0.8);
 }
 
-:deep(.rr-player__frame) {
-    background: #fff;
+.rrweb-theme-override :deep(.rr-player__frame) {
+    background: #ffffff;
 }
 
-:deep(.rr-controller) {
-    border-top: 1px solid #e5e7eb;
+.rrweb-theme-override :deep(.rr-controller) {
+    border-top: 1px solid rgba(228, 228, 231, 0.8);
+    background: #fafafa;
+    color: #18181b;
+}
+
+.rrweb-theme-override :deep(.rr-timeline__time) {
+    color: #71717a;
+}
+
+.rrweb-theme-override :deep(.rr-controller__btns button) {
+    color: #18181b;
 }
 </style>

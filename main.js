@@ -1,12 +1,13 @@
 const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const path = require('path');
 const { startServer, closeServer } = require('./src/server/index.js');
-const { getDeviceTargets, startLogStream, stopLogStream, teardown } = require('./src/server/deviceManager.js');
+const { teardown } = require('./src/server/deviceManager.js');
 
 // 导入解耦的 IPC 模块
 const { setupRrwebIpc } = require('./src/main/ipc/rrweb.js');
 const { setupDiagnosticIpc } = require('./src/main/ipc/diagnostic.js');
 const { setupUpdaterIpc } = require('./src/main/ipc/updater.js');
+const { setupDeviceIpc } = require('./src/main/ipc/device.js');
 
 process.on('uncaughtException', (err) => {
     console.error('[main] uncaughtException:', err);
@@ -25,7 +26,7 @@ function canOpenAppWindow(rawUrl) {
         const url = new URL(rawUrl);
         const hostOk = (url.hostname === '127.0.0.1' && String(localPort) === url.port)
             || (isDev && url.hostname === 'localhost' && url.port === '5173');
-        return hostOk && ['/workbench.html', '/devtools/inspector.html'].includes(url.pathname);
+        return hostOk && ['/devtools/inspector.html'].includes(url.pathname);
     } catch {
         return false;
     }
@@ -96,19 +97,7 @@ app.whenReady().then(() => {
     setupRrwebIpc(ipcMain, app);
     setupDiagnosticIpc(ipcMain, app);
     setupUpdaterIpc(ipcMain, () => mainWindow);
-
-    ipcMain.handle('get-targets', async (event, driverType) => {
-        return await getDeviceTargets(driverType);
-    });
-
-    ipcMain.handle('start-logcat', async (event, deviceId, driverType) => {
-        return await startLogStream(deviceId, event.sender, driverType);
-    });
-
-    ipcMain.handle('stop-logcat', async (event, deviceId) => {
-        stopLogStream(deviceId, event.sender);
-        return { status: 'success' };
-    });
+    setupDeviceIpc(ipcMain);
 
     createWindow();
 });

@@ -45,7 +45,7 @@ export function shortUrl(url) {
  * @param {string} url
  * @returns {URL|null}
  */
-export function safeUrl(url) {
+function safeUrl(url) {
     try { return new URL(url); } catch (e) { return null; }
 }
 
@@ -71,14 +71,4 @@ export function decodeErrorPage(url) {
  */
 export function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-/**
- * Split next-steps text into individual steps
- * @param {string} text
- * @returns {string[]}
- */
-export function splitSteps(text) {
-    const parts = String(text || '').split(/(?:\d+\.\s*)|[；;]/).map(s => s.trim()).filter(Boolean);
-    return parts.length ? parts : [String(text || '')];
 }

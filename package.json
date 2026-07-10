@@ -6,14 +6,14 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node tests/diagnostic-run.test.mjs",
+    "test": "node tests/diagnostic-run.test.mjs && node tests/redact.test.mjs",
     "start": "electron .",
     "pack": "vite build && electron-builder --dir",
     "dist": "vite build && electron-builder",
     "release": "node release.js"
   },
   "build": {
-    "appId": "com.example.ztools",
+    "appId": "com.zhaichong.ztools",
     "productName": "ztools",
     "directories": {
       "output": "release-build"
@@ -23,6 +23,7 @@
       "preload.js",
       "src/main/**/*",
       "src/server/**/*",
+      "src/shared/**/*",
       "dist/**/*",
       "devtools/**/*",
       "build/icon.png"

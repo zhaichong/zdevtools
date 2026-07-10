@@ -1,20 +1,33 @@
 const path = require('path');
 const fsp = require('fs/promises');
+const { safeFilePart, safeJsonLines } = require('../utils.js');
 
 const RRWEB_MAX_CHUNK_BYTES = 512 * 1024;
 const RRWEB_MAX_FILE_BYTES = 20 * 1024 * 1024;
 
-function safeFilePart(value) {
-    return String(value || 'unknown').replace(/[^a-z0-9_.-]/gi, '_').slice(0, 120);
-}
-
-function safeJsonLines(text) {
-    return text.split('\n').filter(Boolean).map(line => {
-        try { return JSON.parse(line); } catch { return null; }
-    }).filter(Boolean);
-}
-
 function setupRrwebIpc(ipcMain, app) {
+    async function cleanupOldChunks() {
+        try {
+            const dir = path.join(app.getPath('userData'), 'rrweb');
+            const files = await fsp.readdir(dir).catch(() => []);
+            if (!files.length) return;
+            
+            const chunkFiles = await Promise.all(files.filter(f => f.endsWith('.jsonl')).map(async f => {
+                const stat = await fsp.stat(path.join(dir, f)).catch(() => null);
+                return { name: f, mtime: stat ? stat.mtimeMs : 0 };
+            }));
+            
+            chunkFiles.sort((a, b) => b.mtime - a.mtime);
+            const toDelete = chunkFiles.slice(10);
+            
+            for (const file of toDelete) {
+                await fsp.unlink(path.join(dir, file.name)).catch(() => {});
+            }
+        } catch (e) {
+            console.error('[rrweb] cleanup failed:', e);
+        }
+    }
+
     function rrwebFile(targetId) {
         return path.join(app.getPath('userData'), 'rrweb', `${safeFilePart(targetId)}.jsonl`);
     }
@@ -62,6 +75,8 @@ function setupRrwebIpc(ipcMain, app) {
             return [];
         }
     });
+
+    cleanupOldChunks();
 }
 
-module.exports = { setupRrwebIpc, safeFilePart, safeJsonLines };
+module.exports = { setupRrwebIpc };

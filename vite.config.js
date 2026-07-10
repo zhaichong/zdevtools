@@ -15,8 +15,7 @@ export default defineConfig({
     build: {
         rollupOptions: {
             input: {
-                main: resolve(__dirname, 'index.html'),
-                workbench: resolve(__dirname, 'workbench.html')
+                main: resolve(__dirname, 'index.html')
             }
         },
         outDir: 'dist'

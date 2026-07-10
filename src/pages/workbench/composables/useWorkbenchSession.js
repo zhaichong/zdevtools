@@ -7,8 +7,6 @@ import { useProbe } from './useProbe.js';
 import { useRootCauses } from './useRootCauses.js';
 import { useSourceMap } from './useSourceMap.js';
 import { useReport } from './useReport.js';
-import { useNetworkMonitor } from './useNetworkMonitor.js';
-import { useConsoleStream } from './useConsoleStream.js';
 import { useLogcat } from './useLogcat.js';
 import { useDiagnosticRun } from './useDiagnosticRun.js';
 
@@ -26,8 +24,6 @@ export function useWorkbenchSession(config) {
     const { sourceStats, handleSourceMapFiles, applySourceToCauses } = useSourceMap();
     const { buildReport: buildReportObj, fallbackReport } = useReport();
 
-    const networkMonitor = useNetworkMonitor(cdpClient);
-    const consoleStream = useConsoleStream(cdpClient);
     const logcatManager = useLogcat();
     const diagnosticRun = useDiagnosticRun(config);
 
@@ -35,10 +31,45 @@ export function useWorkbenchSession(config) {
     let pollInFlight = false;
     let collectInFlight = false;
     let visibilityHandler = null;
+    let currentPanel = 'diagnosis'; // 当前激活的面板，用于域按需启用
 
     // 跟踪 collect() 中注册的 CDP 事件监听器，防止重复注册导致泄漏
     let rrwebBindingHandler = null;
-    let frameNavigatedHandler = null;
+
+    // ========== 内部 Helper ==========
+
+    function pauseAllStreams() {
+        cdpClient.pause();
+        logcatManager.setHidden(true);
+    }
+
+    function resumeAllStreams() {
+        cdpClient.resume();
+        logcatManager.setHidden(false);
+    }
+
+    async function reconnectCdp() {
+        // 先清理上一轮的事件监听器，防止累积
+        if (rrwebBindingHandler) cdpClient.offEvent('Runtime.bindingCalled', rrwebBindingHandler);
+        rrwebBindingHandler = null;
+        disposeProbe();
+
+        cdpClient.close();
+        await cdpClient.connect();
+        await cdpClient.enable();
+    }
+
+    async function setupRrwebBindings() {
+        await window.electronAPI?.clearRrwebChunks?.(config.targetId);
+        await cdpClient.send('Runtime.addBinding', { name: '__rrweb_emit' });
+
+        rrwebBindingHandler = (params) => {
+            if (params.name === '__rrweb_emit' && window.electronAPI) {
+                window.electronAPI.saveRrwebChunk(config.targetId, params.payload);
+            }
+        };
+        cdpClient.onEvent('Runtime.bindingCalled', rrwebBindingHandler);
+    }
 
     function setStatus(text, type = '') {
         statusText.value = text;
@@ -87,44 +118,10 @@ export function useWorkbenchSession(config) {
             await diagnosticRun.createRun(profile.value);
             logcatManager.startStream(config.deviceId, config.driverType);
             if (reconnect || !cdpClient.connected.value) {
-                phase = 'CDP 连接';
-                // 先清理上一轮的事件监听器，防止累积
-                if (rrwebBindingHandler) cdpClient.offEvent('Runtime.bindingCalled', rrwebBindingHandler);
-                if (frameNavigatedHandler) cdpClient.offEvent('Page.frameNavigated', frameNavigatedHandler);
-                rrwebBindingHandler = null;
-                frameNavigatedHandler = null;
-                networkMonitor.dispose();
-                consoleStream.dispose();
-                disposeProbe();
-
-                cdpClient.close();
-                await cdpClient.connect();
-                phase = '启用 CDP 域';
-                await cdpClient.enable();
-                phase = '清理回放缓存';
-                await window.electronAPI?.clearRrwebChunks?.(config.targetId);
-                
+                phase = '重建 CDP 连接';
+                await reconnectCdp();
                 phase = '绑定回放通道';
-                await cdpClient.send('Runtime.addBinding', { name: '__rrweb_emit' });
-
-                // 使用具名函数，便于下次 reconnect 时精确移除
-                rrwebBindingHandler = (params) => {
-                    if (params.name === '__rrweb_emit' && window.electronAPI) {
-                        window.electronAPI.saveRrwebChunk(config.targetId, params.payload);
-                    }
-                };
-                cdpClient.onEvent('Runtime.bindingCalled', rrwebBindingHandler);
-
-                frameNavigatedHandler = (params) => {
-                    if (!params.frame.parentId) {
-                        networkMonitor.clear();
-                        consoleStream.clear();
-                    }
-                };
-                cdpClient.onEvent('Page.frameNavigated', frameNavigatedHandler);
-
-                networkMonitor.setup();
-                consoleStream.setup();
+                await setupRrwebBindings();
             }
             phase = '注入探针';
             await injectProbe();
@@ -172,6 +169,20 @@ export function useWorkbenchSession(config) {
         collect({ reconnect: false }, triggerSelectedCauseIdUpdate);
     }
 
+    /**
+     * 面板切换时按需启用/禁用 CDP Domain
+     * 仅在连接就绪后执行，不影响初次 collect
+     */
+    async function onPanelChange(panelName) {
+        currentPanel = panelName;
+        if (!cdpClient.connected.value) return;
+        try {
+            await cdpClient.enableDomainsForPanel(panelName);
+        } catch (e) {
+            // 失败不影响使用，部分 target 可能不支持某些域
+        }
+    }
+
     onMounted(async () => {
         pollTimer = setInterval(doPoll, 1800);
         
@@ -179,7 +190,13 @@ export function useWorkbenchSession(config) {
             if (document.hidden) {
                 clearInterval(pollTimer);
                 pollTimer = null;
+                pauseAllStreams();
+                // 禁用非必需 CDP Domain，减轻目标 WebView 负载
+                cdpClient.disableAllDomains().catch(() => {});
             } else {
+                resumeAllStreams();
+                // 恢复当前面板所需的 CDP Domain
+                cdpClient.enableDomainsForPanel(currentPanel).catch(() => {});
                 if (!pollTimer) {
                     doPoll();
                     pollTimer = setInterval(doPoll, 1800);
@@ -193,6 +210,8 @@ export function useWorkbenchSession(config) {
         if (visibilityHandler) {
             document.removeEventListener('visibilitychange', visibilityHandler);
         }
+        // 恢复数据流（防止 unmount 时其他组件仍在引用）
+        resumeAllStreams();
         if (pollTimer) clearInterval(pollTimer);
         cdpClient.removeAllListeners();
         cdpClient.close();
@@ -202,6 +221,6 @@ export function useWorkbenchSession(config) {
     return {
         statusText, statusType, report, snapshot, profile, probe,
         cdpClient, logcatManager, diagnosticRun, sourceStats,
-        collect, onRefresh, renderReport, setStatus, handleSourceMapFiles
+        collect, onRefresh, onPanelChange, renderReport, setStatus, handleSourceMapFiles
     };
 }

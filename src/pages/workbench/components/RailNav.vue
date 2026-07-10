@@ -17,82 +17,20 @@ const panels = [
 </script>
 
 <template>
-    <nav class="rail-nav" aria-label="Panel navigation">
+    <nav class="flex flex-col gap-2 p-2 w-20 bg-white backdrop-blur-md border-r border-zinc-200 overflow-y-auto" aria-label="Panel navigation">
         <button
             v-for="panel in panels"
             :key="panel.id"
-            class="rail-item"
-            :class="{ active: activePanel === panel.id }"
+            class="relative flex flex-col items-center gap-1.5 p-2 rounded-xl transition-all duration-200 border border-transparent outline-none focus-visible:border-accent"
+            :class="activePanel === panel.id ? 'bg-accent/10 border-accent/20 text-accent font-medium shadow-sm shadow-accent/5' : 'bg-transparent text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900 hover:border-zinc-200'"
             :title="panel.title"
             type="button"
             @click="$emit('select-panel', panel.id)"
         >
-            <span class="rail-icon">{{ panel.icon }}</span>
-            <span class="rail-label">{{ panel.label }}</span>
-            <small v-if="panel.countKey && counts[panel.countKey]" class="rail-count">{{ counts[panel.countKey] }}</small>
+            <span class="grid place-items-center w-7 h-7 rounded border font-mono text-xs shadow-sm transition-colors" :class="activePanel === panel.id ? 'border-accent/40 bg-accent/20' : 'border-zinc-300 bg-white text-zinc-700'">{{ panel.icon }}</span>
+            <span class="text-[11px] whitespace-nowrap">{{ panel.label }}</span>
+            <small v-if="panel.countKey && counts[panel.countKey]" class="absolute top-1 right-1 bg-danger text-white rounded-full px-1.5 text-[9px] font-bold shadow-sm shadow-danger/50">{{ counts[panel.countKey] }}</small>
         </button>
     </nav>
 </template>
 
-<style scoped>
-.rail-nav {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 10px 8px;
-    width: 80px;
-    background: var(--panel-soft);
-    border-right: 1px solid var(--border);
-    overflow-y: auto;
-}
-.rail-item {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    padding: 10px 4px;
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    cursor: pointer;
-    border-radius: 8px;
-    font-size: 11px;
-    transition: background-color 0.15s ease, color 0.15s ease;
-}
-.rail-item:hover {
-    background: var(--panel);
-    color: var(--text);
-}
-.rail-item.active {
-    background: var(--panel-strong);
-    color: var(--accent);
-    font-weight: 600;
-}
-.rail-icon {
-    display: grid;
-    place-items: center;
-    width: 24px;
-    height: 24px;
-    border-radius: 6px;
-    border: 1px solid currentColor;
-    font-size: 10px;
-    line-height: 1;
-    font-family: Consolas, "Cascadia Mono", monospace;
-}
-.rail-label {
-    font-size: 11px;
-    white-space: nowrap;
-}
-.rail-count {
-    position: absolute;
-    top: 4px;
-    right: 8px;
-    background: var(--danger);
-    color: #fff;
-    border-radius: 10px;
-    padding: 0 5px;
-    font-size: 9px;
-    font-weight: 700;
-}
-</style>

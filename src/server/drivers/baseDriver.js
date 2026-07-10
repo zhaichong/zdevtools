@@ -2,7 +2,10 @@
  * baseDriver.js — adb/hdc 共享的基础工具函数和日志流管理器
  */
 
+const { redact } = require('../../shared/utils/redact-rules.cjs');
+
 /**
+ * 每次对输出到日志面板的日志进行过滤
  * 带指数退避的重试包装器
  * @param {Function} fn - 返回 { ok: boolean, ... } 的异步函数
  * @param {object} options - { maxRetries, baseDelay }
@@ -63,10 +66,11 @@ function createLogStreamManager({ getToolPath, buildArgs, errorLabel }) {
                     chunkBuffer += chunk.toString();
                     if (!debounceTimer) {
                         debounceTimer = setTimeout(() => {
-                            const text = chunkBuffer;
+                            let text = chunkBuffer;
                             chunkBuffer = '';
                             debounceTimer = null;
                             if (text) {
+                                text = redact(text);
                                 for (const sub of streamData.subscribers) {
                                     if (!sub.isDestroyed()) sub.send('logcat-chunk', text);
                                 }

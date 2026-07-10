@@ -5,14 +5,17 @@ const { withRetry, parseDevtoolsSockets, createLogStreamManager } = require('./b
 
 const ADB_TIMEOUT_MS = 6000;
 
+let _cachedAdbPath = null;
+
 function getAdbPath() {
+    if (_cachedAdbPath) return _cachedAdbPath;
     const candidates = [
         path.join(__dirname, '..', '..', '..', 'bin', 'adb.exe'),
         process.resourcesPath ? path.join(process.resourcesPath, 'bin', 'adb.exe') : null
     ].filter(Boolean);
 
-    const adbPath = candidates.find(candidate => fs.existsSync(candidate));
-    return adbPath || 'adb';
+    _cachedAdbPath = candidates.find(candidate => fs.existsSync(candidate)) || 'adb';
+    return _cachedAdbPath;
 }
 
 function runAdb(args, timeout = ADB_TIMEOUT_MS) {

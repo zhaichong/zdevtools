@@ -1,4 +1,5 @@
 import { ref, shallowRef, triggerRef, reactive, computed, watch } from 'vue';
+import { redact } from '@/shared/utils/redact.js';
 
 /** 内存上限 — 超过此数量自动淘汰最旧条目，防止无限增长 */
 const MAX_ENTRIES = 50000;
@@ -73,6 +74,7 @@ export function useLogcat() {
     const searchText = ref('');
     const filterLevel = ref('all');
     const paused = ref(false);
+    const _hidden = ref(false); // 内部暂停：窗口最小化时由 visibilitychange 置 true，独立于用户手动暂停
     const autoScroll = ref(true);
     const matchIndex = ref(0);
     const loading = ref(false);
@@ -128,9 +130,15 @@ export function useLogcat() {
         }
     }
 
+    // 搜索/过滤防抖：150ms debounce 防止每次按键都同步遍历 50000 条
+    let filterTimer = null;
     watch([filterLevel, searchText], () => {
-        rebuildFilteredEntries();
-    }, { flush: 'sync' });
+        if (filterTimer) clearTimeout(filterTimer);
+        filterTimer = setTimeout(() => {
+            filterTimer = null;
+            rebuildFilteredEntries();
+        }, 150);
+    });
 
     // 状态流 API 绑定
     let cleanupData = null;
@@ -149,15 +157,66 @@ export function useLogcat() {
 
         let chunkBuffer = '';
 
-        function redactSensitive(text) {
-            return String(text || '')
-                .replace(/(access_token|token|password|client_secret|Authorization)(["'\s:=]+)([^"',\s&]+)/gi, '$1$2[REDACTED]')
-                .replace(/(Bearer\s+)[A-Za-z0-9._-]+/gi, '$1[REDACTED]');
+        // rAF 批量处理：收集多个 chunk 到同一帧统一处理，减少主线程碎片化
+        let pendingLogLines = [];
+        let logFlushScheduled = false;
+
+        function flushLogBatch() {
+            logFlushScheduled = false;
+            const batch = pendingLogLines;
+            pendingLogLines = [];
+            if (batch.length === 0) return;
+            // 合并所有 rawLines 到一张大列表，保留顺序
+            const allLines = batch.flat();
+            const newEntries = allLines.map(line => parseLogLine(redact(line.trim()))).filter(e => e.raw);
+            if (newEntries.length === 0) return;
+
+            let newArray = entries.value.concat(newEntries);
+            let removed = [];
+            const excess = newArray.length - MAX_ENTRIES;
+            if (excess > 0) {
+                removed = newArray.slice(0, excess);
+                newArray = newArray.slice(excess);
+                adjustStats(removed, -1);
+            }
+            adjustStats(newEntries, 1);
+            entries.value = newArray; // triggers reactivity
+
+            const isFilterActive = filterLevel.value !== 'all' || searchLower !== '';
+            if (!isFilterActive) {
+                filteredEntries.value = newArray;
+            } else {
+                const newMatching = applyFiltersTo(newEntries);
+                if (newMatching.length > 0 || excess > 0) {
+                    let newFiltered = filteredEntries.value.concat(newMatching);
+                    if (excess > 0 && removed.length > 0) {
+                        const maxRemovedId = removed[removed.length - 1].id;
+                        let removeCount = 0;
+                        while (removeCount < newFiltered.length && newFiltered[removeCount].id <= maxRemovedId) {
+                            removeCount++;
+                        }
+                        if (removeCount > 0) {
+                            newFiltered = newFiltered.slice(removeCount);
+                        }
+                    }
+                    filteredEntries.value = newFiltered;
+                }
+            }
+
+            if (autoScroll.value && filteredEntries.value.length > 0) {
+                matchIndex.value = filteredEntries.value.length - 1;
+            }
         }
 
-        cleanupData = window.electronAPI.onLogcatChunk((chunk) => {
+        function scheduleLogFlush() {
+            if (logFlushScheduled) return;
+            logFlushScheduled = true;
+            requestAnimationFrame(flushLogBatch);
+        }
+
+        cleanupData = window.electronAPI?.onLogcatChunk?.((chunk) => {
             if (loading.value) loading.value = false;
-            if (paused.value) return;
+            if (paused.value || _hidden.value) return;
             if (!chunk) return;
 
             chunkBuffer += chunk;
@@ -166,55 +225,18 @@ export function useLogcat() {
             
             if (rawLines.length === 0) return;
 
-            // 核心优化 3（前端）：使用 setTimeout(0) 将巨量日志的映射推迟到下一个事件循环，防止阻塞渲染帧
-            setTimeout(() => {
-                const newEntries = rawLines.map(line => parseLogLine(redactSensitive(line.trim()))).filter(e => e.raw);
-                if (newEntries.length === 0) return;
-                
-                let newArray = entries.value.concat(newEntries);
-                let removed = [];
-                const excess = newArray.length - MAX_ENTRIES;
-                if (excess > 0) {
-                    removed = newArray.slice(0, excess);
-                    newArray = newArray.slice(excess);
-                    adjustStats(removed, -1);
-                }
-                adjustStats(newEntries, 1);
-                entries.value = newArray; // triggers reactivity
-
-                const isFilterActive = filterLevel.value !== 'all' || searchLower !== '';
-                if (!isFilterActive) {
-                    filteredEntries.value = newArray;
-                } else {
-                    const newMatching = applyFiltersTo(newEntries);
-                    if (newMatching.length > 0 || excess > 0) {
-                        let newFiltered = filteredEntries.value.concat(newMatching);
-                        if (excess > 0 && removed.length > 0) {
-                            const maxRemovedId = removed[removed.length - 1].id;
-                            let removeCount = 0;
-                            while (removeCount < newFiltered.length && newFiltered[removeCount].id <= maxRemovedId) {
-                                removeCount++;
-                            }
-                            if (removeCount > 0) {
-                                newFiltered = newFiltered.slice(removeCount);
-                            }
-                        }
-                        filteredEntries.value = newFiltered;
-                    }
-                }
-
-                if (autoScroll.value && filteredEntries.value.length > 0) {
-                    matchIndex.value = filteredEntries.value.length - 1;
-                }
-            }, 0);
+            // 核心优化 3（前端）：使用 requestAnimationFrame 将日志处理对齐到渲染帧，
+            // 替代 setTimeout(0) 避免回调积压 + 减少主线程碎片化
+            pendingLogLines.push(rawLines);
+            scheduleLogFlush();
         });
 
-        cleanupError = window.electronAPI.onLogcatError((errMsg) => {
+        cleanupError = window.electronAPI?.onLogcatError?.((errMsg) => {
             error.value = `获取 logcat 失败: ${errMsg}`;
             loading.value = false;
         });
 
-        window.electronAPI.startLogcat(deviceId, driverType).then((result) => {
+        window.electronAPI?.startLogcat?.(deviceId, driverType).then((result) => {
             if (result?.status === 'error') {
                 error.value = result.message || '启动 logcat 失败';
                 loading.value = false;
@@ -229,7 +251,7 @@ export function useLogcat() {
         if (cleanupData) { cleanupData(); cleanupData = null; }
         if (cleanupError) { cleanupError(); cleanupError = null; }
         if (deviceId) {
-            window.electronAPI.stopLogcat(deviceId);
+            window.electronAPI?.stopLogcat?.(deviceId);
         }
     }
 
@@ -244,6 +266,9 @@ export function useLogcat() {
 
     function togglePause() { paused.value = !paused.value; }
     function toggleAutoScroll() { autoScroll.value = !autoScroll.value; }
+
+    /** 窗口隐藏/可见时由 useWorkbenchSession 调用，独立于用户手动暂停 */
+    function setHidden(hidden) { _hidden.value = hidden; }
 
     const matchCount = computed(() => {
         return searchText.value ? filteredEntries.value.length : 0;
@@ -288,6 +313,7 @@ export function useLogcat() {
         matchCount,
         currentMatchEntry,
         rebuildFilteredEntries, // 暴露给外部调用（当参数改变时）
+        setHidden,
         startStream,
         stopStream,
         clear,

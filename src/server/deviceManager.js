@@ -2,6 +2,7 @@ const http = require('http');
 const adbDriver = require('./drivers/adbDriver.js');
 const hdcDriver = require('./drivers/hdcDriver.js');
 const { FORWARD_PORT_MIN, FORWARD_PORT_MAX } = require('./constants.js');
+const { findFreePort } = require('./portfinder.js');
 const TARGET_TIMEOUT_MS = 1000;
 const drivers = [adbDriver, hdcDriver];
 
@@ -198,18 +199,33 @@ async function processDevice(driver, baseDevice, portMap, preDiscoveredSockets) 
     return device;
 }
 
-// 发现互斥锁：防止并发 getDeviceTargets 导致端口冲突和 forward 重复
-let discoveryLock = null;
+// 发现互斥锁：按 driverType 分别加锁，不同驱动不互相阻塞
+const discoveryLock = new Map();
 
-async function getDeviceTargets(driverType = 'adb') {
-    if (discoveryLock) {
-        console.log('[DeviceManager] Discovery already in progress, reusing result...');
-        return discoveryLock;
+async function getDeviceTargets(driverType = 'all') {
+    if (driverType === 'all') {
+        const [adbResult, hdcResult] = await Promise.all([
+            getDeviceTargets('adb'),
+            getDeviceTargets('hdc')
+        ]);
+        const diagnostics = {
+            adbAvailable: adbResult.diagnostics.adbAvailable,
+            hdcAvailable: hdcResult.diagnostics.hdcAvailable,
+            messages: [...(adbResult.diagnostics.messages || []), ...(hdcResult.diagnostics.messages || [])]
+        };
+        const devices = [...(adbResult.devices || []), ...(hdcResult.devices || [])];
+        return { status: 'success', diagnostics, devices };
     }
-    discoveryLock = _doGetDeviceTargets(driverType).finally(() => {
-        discoveryLock = null;
+
+    if (discoveryLock.has(driverType)) {
+        console.log(`[DeviceManager] Discovery for ${driverType} already in progress, reusing result...`);
+        return discoveryLock.get(driverType);
+    }
+    const promise = _doGetDeviceTargets(driverType).finally(() => {
+        discoveryLock.delete(driverType);
     });
-    return discoveryLock;
+    discoveryLock.set(driverType, promise);
+    return promise;
 }
 
 async function _doGetDeviceTargets(driverType = 'adb') {
@@ -294,7 +310,15 @@ async function _doGetDeviceTargets(driverType = 'adb') {
     const allSocketEntries = socketDiscoveries.flatMap(d =>
         d.sockets.map(socket => ({ deviceId: d.deviceId, socket }))
     );
-    const { portMap, error: portError } = await preAllocatePorts(allSocketEntries, allExistingForwards);
+    let portMap, portError;
+    try {
+        const result = await preAllocatePorts(allSocketEntries, allExistingForwards);
+        portMap = result.portMap;
+        portError = result.error;
+    } catch (e) {
+        portMap = new Map();
+        portError = e.message;
+    }
     if (portError) {
         diagnostics.messages.push({ level: 'warn', message: `Port allocation warning: ${portError}` });
     }
@@ -311,38 +335,13 @@ async function _doGetDeviceTargets(driverType = 'adb') {
         })
     );
 
-    // 探测本地常用网络映射端口，因为鸿蒙开发者可能会用 hdc fport 或者 DevEco 映射
-    // 我们将这些端口探测到的 targets 合并到第一台活跃设备中，避免产生多余的虚拟设备卡片
-    // 注意：只在 HDC 模式下探测，因为 ADB 模式原生就能扫到套接字，而且 ADB 模式可能会分配 9222 导致重复探测
-    if (driverType === 'hdc' && devices.length > 0) {
-        const probePorts = [9222, 9223, 9224, 9225, 9226];
+    // 探测 HDC 手动映射的端口（如果是 HDC 驱动且有活跃设备）
+    if (driverResult && driverResult.driver.type === 'hdc' && devices.length > 0 && driverResult.driver.probeManualForwards) {
         const primaryDevice = devices[0];
-        await Promise.all(probePorts.map(async (port) => {
-            try {
-                const netResult = await requestJson(`http://127.0.0.1:${port}/json/list`);
-                if (netResult.ok && netResult.data && netResult.data.length > 0) {
-                    const targets = netResult.data.filter(t => ['page', 'webview'].includes(t.type) && (t.url || t.title));
-                    if (targets.length > 0) {
-                        const enrichedTargets = targets.map(t => ({
-                            id: t.id, type: t.type, title: t.title, url: t.url, description: t.description,
-                            faviconUrl: t.faviconUrl, devtoolsFrontendUrl: t.devtoolsFrontendUrl,
-                            webSocketDebuggerUrl: t.webSocketDebuggerUrl, localPort: port,
-                            deviceId: primaryDevice.id, processName: `hdc-fport-${port}`
-                        }));
-                        
-                        primaryDevice.processes.unshift({
-                            processName: `HDC Forward (${port})`,
-                            processHint: 'Manual Mapping',
-                            localPort: port,
-                            forwardOk: true,
-                            targets: enrichedTargets
-                        });
-                    }
-                }
-            } catch (e) {
-                // ignore if port is not open
-            }
-        }));
+        const manualProcesses = await driverResult.driver.probeManualForwards(primaryDevice.id);
+        if (manualProcesses.length > 0) {
+            primaryDevice.processes.unshift(...manualProcesses);
+        }
     }
 
     // 只保留能调试的设备（含有有效 targets 的设备）
@@ -397,30 +396,10 @@ function stopLogStream(deviceId, webContents) {
     if (driver && driver.stopLogStream) {
         driver.stopLogStream(deviceId, webContents);
     }
+    logStreamMap.delete(deviceId);
 }
 
-// 从原 adb.js 中继承 findFreePort 给外层 index.js 使用
-async function findFreePort(startPort, maxPort = startPort + 500) {
-    const net = require('net');
-    let currentPort = startPort;
 
-    while (currentPort <= maxPort) {
-        try {
-            return await new Promise((resolve, reject) => {
-                const server = net.createServer();
-                server.unref();
-                server.on('error', reject);
-                server.listen(currentPort, '127.0.0.1', () => {
-                    const port = server.address().port;
-                    server.close(() => resolve(port));
-                });
-            });
-        } catch (e) {
-            currentPort++;
-        }
-    }
-    throw new Error('No free ports available in range');
-}
 
 async function teardown() {
     for (const driver of drivers) {
@@ -430,26 +409,11 @@ async function teardown() {
                 console.error(`[teardown] ${driver.type} killAllLogStreams error:`, e.message || e);
             }
         }
-
-        // 再清理端口转发
-        if (driver.type === 'adb') {
-            // 复用 driver 自身的 getAdbPath（__dirname 层级正确），避免重复拼路径
-            if (driver.removeAllForwards) {
-                await driver.removeAllForwards().catch(e => {
-                    console.error('[teardown] adb forward --remove-all error:', e.message || e);
-                });
-            }
-        } else if (driver.type === 'hdc') {
-            try {
-                const forwards = await driver.listForwards();
-                for (const f of forwards) {
-                    if (f.localPort >= FORWARD_PORT_MIN && f.localPort <= FORWARD_PORT_MAX) {
-                        await driver.removeForward(f.id === '*' ? '' : f.id, f.localPort).catch(() => {});
-                    }
-                }
-            } catch (e) {
-                console.error('[teardown] hdc cleanup error:', e.message || e);
-            }
+        // 清理端口转发（HDC 的 removeAllForwards 内部已处理逐个移除）
+        if (driver.removeAllForwards) {
+            await driver.removeAllForwards().catch(e => {
+                console.error(`[teardown] ${driver.type} removeAllForwards error:`, e.message || e);
+            });
         }
     }
     // 清空路由映射，防止 Map 泄漏
@@ -457,5 +421,5 @@ async function teardown() {
 }
 
 module.exports = {
-    getDeviceTargets, startLogStream, stopLogStream, findFreePort, teardown
+    getDeviceTargets, startLogStream, stopLogStream, teardown
 };

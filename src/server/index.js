@@ -1,7 +1,7 @@
 const express = require('express');
 const { createServer } = require('http');
 const path = require('path');
-const { getDeviceTargets, startLogStream, stopLogStream, findFreePort } = require('./deviceManager.js');
+const { findFreePort } = require('./portfinder.js');
 const { createWsProxy, mountWsUpgrade, closeAllSockets } = require('./proxy.js');
 const { errorHandler } = require('./middleware.js');
 
@@ -15,7 +15,6 @@ async function startServer() {
     const proxy = createWsProxy();
 
     // 静态资源
-    const isDev = !require('electron').app.isPackaged && process.env.VITE_DEV;
     const projectRoot = path.join(__dirname, '..', '..');
     const devtoolsDir = path.join(projectRoot, 'devtools');
 
@@ -69,5 +68,4 @@ function closeServer() {
     });
 }
 
-// 保持向后兼容
-module.exports = { startServer, closeServer, getAdbTargets: getDeviceTargets };
+module.exports = { startServer, closeServer };

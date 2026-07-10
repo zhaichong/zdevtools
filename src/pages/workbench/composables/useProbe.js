@@ -1,5 +1,6 @@
 import { BRIDGE_METHODS } from '@/shared/constants.js';
 import rrwebScript from '../../../../node_modules/rrweb/dist/rrweb.umd.min.cjs?raw';
+import { buildRedactSource } from '@/shared/utils/redact-rules.cjs';
 
 /**
  * 探针注入和轮询 composable
@@ -27,7 +28,8 @@ export function useProbe(cdpClient) {
         `);
 
         // Then inject our probe
-        await evaluate(`(${probeInstaller.toString()})(${JSON.stringify(BRIDGE_METHODS)})`);
+        const installerStr = probeInstaller.toString().replace(/const redact = [^;]+;/, buildRedactSource());
+        await evaluate(`(${installerStr})(${JSON.stringify(BRIDGE_METHODS)})`);
         // Start rrweb recording
         await evaluate(`
             if (window.rrweb) {
@@ -96,7 +98,7 @@ function probeInstaller(bridgeMethods) {
             return JSON.stringify(value);
         } catch (e) { return String(value); }
     };
-    const redact = value => String(value || '').replace(/((?:access_)?token|password|client_secret|Authorization)(["'\s:=]+)([^"',\s&]+)/gi, '$1$2[REDACTED]').replace(/(Bearer\s+)[A-Za-z0-9._-]+/gi, '$1[REDACTED]');
+    const redact = value => String(value ?? '').replace(/((?:access_)?token|password|client_secret|Authorization)(["'\s:=]+)([^"',\s&]+)/gi, '$1$2[REDACTED]').replace(/(Bearer\s+)[A-Za-z0-9._-]+/gi, '$1[REDACTED]');
     const state = {
         installed: true, breadcrumbs: [], errors: [], network: [],
         add(item) { this.breadcrumbs.push({ time: now(), ...item }); this.breadcrumbs = this.breadcrumbs.slice(-MAX); },
