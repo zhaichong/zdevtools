@@ -53,12 +53,18 @@
                 </button>
 
                 <!-- 出错 -->
-                <button v-else-if="updateStatus === 'error'"
-                    class="bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs px-2.5 py-1 rounded transition-colors font-medium cursor-pointer"
-                    @click="checkForUpdates" type="button"
-                    :title="'更新出错：' + (errorMessage || '未知错误') + ' — 点击重试'">
-                    ⚠ 更新失败
-                </button>
+                <template v-else-if="updateStatus === 'error'">
+                    <button class="bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs px-2.5 py-1 rounded transition-colors font-medium cursor-pointer"
+                        @click="checkForUpdates" type="button"
+                        :title="'更新出错：' + (errorMessage || '未知错误') + ' — 点击重试'">
+                        ⚠ 更新失败
+                    </button>
+                    <button class="bg-zinc-100 hover:bg-zinc-200 border border-zinc-200 text-zinc-700 text-xs px-2.5 py-1 rounded transition-colors font-medium cursor-pointer"
+                        @click="installLocalPackage" type="button"
+                        title="从本地选择已下载的新版本 .exe 安装包直接执行升级">
+                        本地升级
+                    </button>
+                </template>
 
                 <!-- 默认 idle：检查更新 -->
                 <button v-else class="bg-white hover:bg-zinc-50 border border-zinc-200 text-xs text-zinc-600 px-2.5 py-1 rounded transition-colors font-medium cursor-pointer" @click="checkForUpdates" type="button">
@@ -110,7 +116,8 @@ const {
     currentVersion,
     checkForUpdates,
     downloadUpdate,
-    quitAndInstall
+    quitAndInstall,
+    installLocalPackage
 } = useUpdate();
 
 const targets = computed(() => {

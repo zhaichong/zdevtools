@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ztools - 离线 WebView 诊断与调试工具</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Style Sheet -->
+    <link rel="stylesheet" href="./style.css">
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="./assets/logo.png">
+</head>
+<body>
+    <!-- Navbar -->
+    <header class="navbar">
+        <div class="container">
+            <div class="logo">
+                <img src="./assets/logo.png" alt="ztools Logo" class="logo-img">
+                <span class="logo-text">ztools</span>
+            </div>
+            <nav class="nav-links">
+                <a href="#features">核心功能</a>
+                <a href="#workflow">工作流程</a>
+                <a href="#privacy">安全与隐私</a>
+                <a href="https://github.com/zhaichong/zdevtools" target="_blank" class="nav-btn-github">
+                    <svg viewBox="0 0 24 24" class="github-icon">
+                        <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+                    </svg>
+                    GitHub
+                </a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container hero-grid">
+            <div class="hero-content">
+                <span class="badge">完全免费 · 开源</span>
+                <h1 class="hero-title">离线环境下的 WebView 诊断与调试工具</h1>
+                <p class="hero-subtitle">
+                    前端与 Android 工程师的调试神器。一键发现 USB 或局域网中的 Android WebView 调试目标，本地捕获网络、日志与异常证据，实现 100% 离线会话视频回放。
+                </p>
+                <div class="hero-actions">
+                    <a href="https://github.com/zhaichong/zdevtools/releases" target="_blank" class="btn btn-primary">
+                        <span>立即下载 Windows 版</span>
+                        <span class="btn-subtext">支持 Windows 10 / 11 · 免费下载</span>
+                    </a>
+                    <a href="https://github.com/zhaichong/zdevtools#readme" target="_blank" class="btn btn-secondary">
+                        项目文档
+                    </a>
+                </div>
+            </div>
+            <div class="hero-media">
+                <div class="mockup-frame">
+                    <img src="./assets/preview.png" alt="ztools 任务栏效果预览" class="mockup-img">
+                </div>
+            </div>
+        </div>
+        <!-- Background Gradients -->
+        <div class="glow-bg glow-bg-1"></div>
+        <div class="glow-bg glow-bg-2"></div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features">
+        <div class="container">
+            <div class="section-header">
+                <h2>核心功能特性</h2>
+                <p>专为工业级现场排查设计，解决传统在线调试工具对网络和调试线的强依赖痛点。</p>
+            </div>
+            <div class="features-grid">
+                <!-- Feature 1 -->
+                <div class="feature-card">
+                    <div class="feature-icon-wrapper">
+                        <svg viewBox="0 0 24 24" class="feature-icon">
+                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                        </svg>
+                    </div>
+                    <h3>智能目标发现</h3>
+                    <p>自动识别 USB 连入或局域网内的 Android 设备，支持多通道（ADB & HDC）自动发现可调试的 WebView 页面，彻底告别繁琐的命令行端口映射。</p>
+                </div>
+                <!-- Feature 2 -->
+                <div class="feature-card">
+                    <div class="feature-icon-wrapper">
+                        <svg viewBox="0 0 24 24" class="feature-icon">
+                            <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/>
+                        </svg>
+                    </div>
+                    <h3>深度调试取证</h3>
+                    <p>通过 CDP（Chrome DevTools Protocol）无感注入内存探针，一站式收集运行时的 HTTP 错误、Console 异常日志，并自动聚合提取可能的原因。</p>
+                </div>
+                <!-- Feature 3 -->
+                <div class="feature-card">
+                    <div class="feature-icon-wrapper">
+                        <svg viewBox="0 0 24 24" class="feature-icon">
+                            <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4zM14 13h-3v3H9v-3H6v-2h3V8h2v3h3v2z"/>
+                        </svg>
+                    </div>
+                    <h3>会话沙盒回放</h3>
+                    <p>内置轻量级录屏分片引擎，在完全离线状态下录制页面 DOM 变化。诊断报告中附带完整的用户操作还原与录屏回放，无需现场视频录像。</p>
+                </div>
+                <!-- Feature 4 -->
+                <div class="feature-card">
+                    <div class="feature-icon-wrapper">
+                        <svg viewBox="0 0 24 24" class="feature-icon">
+                            <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/>
+                        </svg>
+                    </div>
+                    <h3>本地数据脱敏</h3>
+                    <p>针对企业安全合规要求设计，诊断报告全部保存在本地（UserData 目录）。导出前会自动对 Token、Cookies、敏感 Key 以及请求 Headers 执行脱敏过滤。</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Workflow Section -->
+    <section id="workflow" class="workflow">
+        <div class="container">
+            <div class="section-header">
+                <h2>极其简单的诊断流程</h2>
+                <p>无论处于断网的工厂车间还是封闭的机房内网，您都可以在 1 分钟内完成一次 WebView 的完整取证。</p>
+            </div>
+            
+            <div class="workflow-tabs">
+                <div class="tab-buttons">
+                    <button class="tab-btn active" data-step="1">1. 设备连接与发现</button>
+                    <button class="tab-btn" data-step="2">2. 一键开启工作台</button>
+                    <button class="tab-btn" data-step="3">3. 异常复现与录制</button>
+                    <button class="tab-btn" data-step="4">4. 导出根因报告</button>
+                </div>
+                <div class="tab-content-wrapper">
+                    <!-- Step 1 -->
+                    <div class="tab-content active" id="step-1">
+                        <div class="tab-grid">
+                            <div class="tab-text">
+                                <h3>自动检测与连接设备</h3>
+                                <p>使用数据线连接手机，开启手机的 “USB 调试”。ztools 的双驱动引擎（支持 ADB 与 HDC 通道）会立即开始后台检索，并自动在面板中显示可连接设备和可调试的 WebView 进程，点击“开始诊断”即可建立长连接。</p>
+                                <ul class="tab-list">
+                                    <li>免除手动输入 <code>adb forward</code> / <code>chrome://inspect</code> 繁琐命令</li>
+                                    <li>自动提取当前运行 WebView 容器的内核版本与标题</li>
+                                    <li>支持离线/内网 ADB 驱动自动适配</li>
+                                </ul>
+                            </div>
+                            <div class="tab-code-box">
+                                <pre><code>// ztools 智能匹配与检测引擎
+[HDC] 发现鸿蒙系统调试设备 (127.0.0.1:xxx)
+[ADB] 发现安卓系统调试设备 (USB 连入)
+[CDP] 成功发现 WebView 实例: 
+  ↳ 标题: "支付确认页面"
+  ↳ URL: "http://intranet.service/pay"</code></pre>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Step 2 -->
+                    <div class="tab-content" id="step-2">
+                        <div class="tab-grid">
+                            <div class="tab-text">
+                                <h3>专属调试工作台</h3>
+                                <p>点击调试目标后，ztools 将开启一个独立的精简调试工作台（Workbench），绕过 Chrome 在线 DevTools 的网络限制，离线加载必备的调试工具。您可以在直观的标签栏中监视整个会话生命周期。</p>
+                                <ul class="tab-list">
+                                    <li>内嵌离线 Chrome DevTools 核心镜像</li>
+                                    <li>统一管理网络监控、控制台、时间轴与回放</li>
+                                    <li>秒级初始化，不消耗服务器资源</li>
+                                </ul>
+                            </div>
+                            <div class="tab-code-box">
+                                <pre><code>// 离线工作台挂载服务
+[Server] Express 挂载内置 Webview 镜像
+[Proxy] 建立 WebSocket 取证代理...
+[CDP] 连接到 Page TargetID: 9220...
+[Status] 调试控制台挂载完毕, 等待用户复现...</code></pre>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Step 3 -->
+                    <div class="tab-content" id="step-3">
+                        <div class="tab-grid">
+                            <div class="tab-text">
+                                <h3>内存探针无感录制</h3>
+                                <p>系统会自动在 WebView 页面内存中挂载临时的诊断探针。当您在手机上操作应用复现 Bug 时，所有的 DOM 闪变、接口返回状态、脚本致命错误将被探针静默打包写入本地临时缓存，不会在业务项目中留存任何文件。</p>
+                                <ul class="tab-list">
+                                    <li>探针仅存在于临时内存，刷新页面或拔出手机自动释放</li>
+                                    <li>采用高效分片压缩，几乎不占用手机端系统资源</li>
+                                    <li>支持捕获网络状态、HTTP 状态码及 Response 主体</li>
+                                </ul>
+                            </div>
+                            <div class="tab-code-box">
+                                <pre><code>// 内存探针事件监听捕获中...
+[Evidence] Catching Click Event at button.submit
+[Evidence] Network Exception: GET /v1/api/pay - 500
+[Evidence] Console.error: "Uncaught TypeError:..."
+[rrweb] DOM mutation recorded (24 frames chunk)</code></pre>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Step 4 -->
+                    <div class="tab-content" id="step-4">
+                        <div class="tab-grid">
+                            <div class="tab-text">
+                                <h3>导出全量根因报告</h3>
+                                <p>点击“生成报告”后，系统会将刚才捕获的全部证据打包生成一份独立的 `.zip` 或者 `.json` 诊断会话文件。对方工程师导入此报告后，即可立刻观看用户操作录屏、查看网络接口堆栈并定位首要根因，不再需要现场排查视频。</p>
+                                <ul class="tab-list">
+                                    <li>智能排查器为您标记前 3 个最可能的致命根因</li>
+                                    <li>导出前根据规则库自动过滤敏感的授权 Token、密码</li>
+                                    <li>单文件便携包装，方便跨部门无损传递</li>
+                                </ul>
+                            </div>
+                            <div class="tab-code-box">
+                                <pre><code>// 生成诊断报告...
+[Audit] 自动脱敏 Bearer Token / Set-Cookie Headers
+[Audit] 识别首要根因: "接口域名内网解析错误 (500)"
+[Export] 报告打包完成: `ztools-report_1714_pay.zip`
+[Export] 报告已保存至系统桌面</code></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Privacy Section -->
+    <section id="privacy" class="privacy">
+        <div class="container text-center">
+            <div class="section-header">
+                <h2>安全与脱敏：100% 离线，企业无忧</h2>
+                <p>我们深知数据隐私是企业安全生产的生命线。ztools 的设计原则从根源上保障了数据的私密性。</p>
+            </div>
+            <div class="privacy-grid">
+                <div class="privacy-card">
+                    <div class="privacy-badge">100% 离线</div>
+                    <h3>无云端依赖</h3>
+                    <p>应用无需连接任何第三方云服务器或大数据分析中心，所有的发现、代理、数据收集与诊断全部发生在您的本地工作站（Localhost），非常适合高度保密的研发内网环境。</p>
+                </div>
+                <div class="privacy-card">
+                    <div class="privacy-badge">智能脱敏</div>
+                    <h3>核心信息掩盖</h3>
+                    <p>内置精准敏感信息正则匹配规则库。在保存和导出诊断证据之前，系统会对 API Token、Authorization 头、HTTP Cookies 以及敏感 JSON Key 执行掩码脱敏，防止密码和隐私泄漏。</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Download Section -->
+    <section class="download-section">
+        <div class="container text-center">
+            <h2>开始提升您的 WebView 调试效率</h2>
+            <p>无需繁琐的配置，无需依赖外部服务器，下载解压即可立即使用。</p>
+            <div class="download-actions">
+                <a href="https://github.com/zhaichong/zdevtools/releases" target="_blank" class="btn btn-primary btn-large">
+                    下载 Windows 安装包 (.exe)
+                </a>
+                <a href="https://github.com/zhaichong/zdevtools" target="_blank" class="btn btn-secondary btn-large">
+                    访问 GitHub 仓库
+                </a>
+            </div>
+            <div class="download-note">
+                支持 Windows 10 / 11 64位系统。当前最新版本：v1.0.8
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p>© 2026 ztools. 基于 ISC 开源协议发布。由前端与 Android 工程师团队倾力打造。</p>
+            <div class="footer-links">
+                <a href="https://github.com/zhaichong/zdevtools/issues" target="_blank">反馈问题</a>
+                <span class="divider">·</span>
+                <a href="https://github.com/zhaichong/zdevtools/blob/main/AGENTS.md" target="_blank">架构约定</a>
+            </div>
+        </div>
+    </footer>
+
+    <!-- App Logic Script -->
+    <script src="./app.js"></script>
+</body>
+</html>

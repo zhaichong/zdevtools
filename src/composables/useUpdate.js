@@ -77,6 +77,23 @@ export function useUpdate() {
     }
 
     /**
+     * 选择并执行本地安装包升级
+     */
+    async function installLocalPackage() {
+        if (!api) return;
+        try {
+            const result = await api.installLocalPackage();
+            if (!result.ok && result.error !== 'Cancelled') {
+                errorMessage.value = result.error || '本地安装失败';
+                updateStatus.value = 'error';
+            }
+        } catch (e) {
+            errorMessage.value = e.message || '本地安装发生异常';
+            updateStatus.value = 'error';
+        }
+    }
+
+    /**
      * 监听主进程推送的更新事件
      */
     function handleStatusEvent(data) {
@@ -158,6 +175,7 @@ export function useUpdate() {
         // 操作
         checkForUpdates,
         downloadUpdate,
-        quitAndInstall
+        quitAndInstall,
+        installLocalPackage
     };
 }

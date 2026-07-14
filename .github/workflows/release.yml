@@ -37,6 +37,6 @@ jobs:
         if: success()
         shell: bash
         run: |
-          gh release upload ${{ github.ref_name }} release-build/ztools\ Setup\ *.exe release-build/latest.yml --clobber
+          gh release upload ${{ github.ref_name }} release-build/ztools\ Setup\ *.exe release-build/ztools\ Setup\ *.exe.blockmap release-build/latest.yml --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
