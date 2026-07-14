@@ -3,213 +3,121 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ztools - 重新定义 WebView 离线诊断与调试</title>
-    <!-- Google Fonts & Apple System Fonts -->
+    <title>zdevtools - 离线 WebView 调试与诊断</title>
+    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700;800&family=SF+Pro+Text:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <!-- Style Sheet -->
     <link rel="stylesheet" href="./style.css">
     <!-- Favicon -->
     <link rel="icon" type="image/png" href="./assets/logo.png">
 </head>
-<body class="apple-theme">
-    <!-- Navbar -->
+<body>
+    <!-- Premium Glowing Backgrounds -->
+    <div class="ambient-glow glow-cyan"></div>
+    <div class="ambient-glow glow-purple"></div>
+
+    <!-- Navigation Header -->
     <header class="navbar">
         <div class="container">
             <div class="logo">
-                <img src="./assets/logo.png" alt="ztools Logo" class="logo-img">
-                <span class="logo-text">ztools</span>
+                <img src="./assets/logo.png" alt="zdevtools Logo" class="logo-img">
+                <span class="logo-text">zdevtools</span>
             </div>
             <nav class="nav-links">
-                <a href="#features" class="nav-item">设计与功能</a>
-                <a href="#workflow" class="nav-item">工作流</a>
-                <a href="#privacy" class="nav-item">隐私</a>
-                <a href="https://github.com/zhaichong/zdevtools" target="_blank" class="nav-btn-github">
-                    GitHub 
-                    <svg viewBox="0 0 24 24" class="arrow-icon">
-                        <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-                    </svg>
-                </a>
+                <a href="#features">功能特性</a>
+                <a href="https://github.com/zhaichong/zdevtools#readme" target="_blank">文档</a>
+                <a href="https://github.com/zhaichong/zdevtools/issues" target="_blank">反馈</a>
+                <a href="https://github.com/zhaichong/zdevtools/releases" target="_blank" class="nav-btn-download">立即下载</a>
             </nav>
         </div>
     </header>
 
-    <!-- Hero Section (Apple Style Centered) -->
+    <!-- Hero Section -->
     <section class="hero">
-        <div class="container">
-            <div class="hero-text-align">
-                <span class="hero-tag">ztools 1.0.8</span>
-                <h1 class="hero-title">离线 WebView 诊断与调试。<br><span class="gradient-text">从未如此纯粹。</span></h1>
+        <div class="container hero-grid">
+            <!-- Left Column: Marketing Text -->
+            <div class="hero-content">
+                <h1 class="hero-title">离线 WebView<br>调试与诊断</h1>
                 <p class="hero-subtitle">
-                    极致简约的开发现场调试神器。一键发现 USB 或局域网中的 Android / 鸿蒙 WebView 调试目标，本地捕获全维日志，提供 100% 离线的会话视频回放。
+                    通过针对所有 WebView 应用的高级调试、性能分析和离线诊断，提升您的开发工作流。立即开启。
                 </p>
                 <div class="hero-actions">
-                    <a href="https://github.com/zhaichong/zdevtools/releases" target="_blank" class="btn btn-primary">
-                        免费下载 Windows 版
+                    <a href="https://github.com/zhaichong/zdevtools/releases" target="_blank" class="btn-hero-download">
+                        下载 Windows 版
                     </a>
-                    <a href="https://github.com/zhaichong/zdevtools#readme" target="_blank" class="link-more">
-                        了解项目文档 <span class="arrow">→</span>
+                    <a href="https://github.com/zhaichong/zdevtools#readme" target="_blank" class="link-learn-more">
+                        了解更多
                     </a>
                 </div>
             </div>
-            
-            <div class="hero-product-preview scroll-reveal">
-                <div class="device-mockup">
-                    <div class="device-header">
-                        <div class="dots">
-                            <span class="dot"></span>
-                            <span class="dot"></span>
-                            <span class="dot"></span>
+
+            <!-- Right Column: Premium Macbook Mockup -->
+            <div class="hero-media">
+                <div class="macbook-wrapper">
+                    <div class="macbook-screen">
+                        <div class="macbook-camera"></div>
+                        <div class="screen-content">
+                            <img src="./assets/preview.png" alt="zdevtools Workbench" class="screen-img">
                         </div>
-                        <span class="url">localhost:5173/ztools/workbench</span>
                     </div>
-                    <img src="./assets/preview.png" alt="ztools 界面展示" class="device-img">
+                    <div class="macbook-base">
+                        <div class="base-notch"></div>
+                    </div>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Features Bento Grid Section (Apple Style Specs Grid) -->
-    <section id="features" class="features">
+    <!-- Bottom Features Bento Grid -->
+    <section id="features" class="features-section">
         <div class="container">
-            <div class="section-intro text-center">
-                <h2 class="section-title">全方位的取证设计。<br>每个模块都精雕细琢。</h2>
-                <p class="section-subtitle">专为企业封闭开发网与复杂的调试现场设计。无需任何外部依赖，安全且高效。</p>
-            </div>
-            
-            <div class="bento-grid">
-                <!-- Bento Card 1: Double column -->
-                <div class="bento-card bento-double scroll-reveal">
-                    <div class="bento-content-split">
-                        <div class="bento-text">
-                            <span class="bento-tag">扫描与匹配</span>
-                            <h3>双通道智能目标发现</h3>
-                            <p>内置 ADB 与 HDC 双核心扫描引擎，自动识别通过 USB 连入或内网映射的 Android / HarmonyOS 设备，实时检索可调试的 WebView 页面并显示内核版本。免除配置命令行端口映射的繁琐流程。</p>
-                        </div>
-                        <div class="bento-visual">
-                            <div class="visual-code-term">
-                                <div class="term-line"><span class="t-green">✔ HDC</span> HarmonyOS 设备连入</div>
-                                <div class="term-line"><span class="t-green">✔ ADB</span> Android WebView 自动解析</div>
-                                <div class="term-line"><span class="t-cyan">→ Page</span> "订单支付页" (Chromium 109)</div>
-                            </div>
-                        </div>
+            <div class="features-grid">
+                <!-- Feature 1: Target Discovery -->
+                <div class="feature-card">
+                    <div class="card-icon-wrapper">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="card-icon">
+                            <circle cx="12" cy="12" r="10"/>
+                            <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>
+                        </svg>
                     </div>
+                    <h3>目标自动发现</h3>
+                    <p>自动识别设备，分析调试进程。</p>
                 </div>
 
-                <!-- Bento Card 2: Single column -->
-                <div class="bento-card scroll-reveal">
-                    <div class="bento-text">
-                        <span class="bento-tag">安全与脱敏</span>
-                        <h3>工业级隐私合规</h3>
-                        <p>所有抓取的调试会话数据全部存储在本地。在导出和展示前，系统会自动匹配规则对用户的 API Token、Cookies、敏感 Key 以及 Headers 执行实时脱敏过滤，守护企业隐私红线。</p>
+                <!-- Feature 2: Offline Debugging -->
+                <div class="feature-card">
+                    <div class="card-icon-wrapper">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="card-icon">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        </svg>
                     </div>
+                    <h3>完全离线调试</h3>
+                    <p>无需保持外网连接，随时随地检查。</p>
                 </div>
 
-                <!-- Bento Card 3: Single column -->
-                <div class="bento-card scroll-reveal">
-                    <div class="bento-text">
-                        <span class="bento-tag">会话视频化</span>
-                        <h3>rrweb 录屏回放</h3>
-                        <p>通过 CDP 无感挂载 DOM 闪变录像引擎。无需手机摄像机对准屏幕，便可自动记录页面上所有的微小渲染细节，并支持在诊断报告中像视频一样进行回放。</p>
+                <!-- Feature 3: Diagnostics & Replay -->
+                <div class="feature-card">
+                    <div class="card-icon-wrapper">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="card-icon">
+                            <polygon points="23 7 16 12 23 17 23 7"/>
+                            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                        </svg>
                     </div>
-                </div>
-
-                <!-- Bento Card 4: Double column -->
-                <div class="bento-card bento-double scroll-reveal">
-                    <div class="bento-content-split">
-                        <div class="bento-text">
-                            <span class="bento-tag">数据取证</span>
-                            <h3>全维堆栈日志聚合</h3>
-                            <p>在用户复现异常的瞬间，系统会自动搜集并归档所有的 HTTP 网络调用状态、Console 日志堆栈。内置排查器自动结合多维度异常指标，提取前 3 个最可能的致命原因。</p>
-                        </div>
-                        <div class="bento-visual">
-                            <div class="visual-stack">
-                                <div class="stack-item item-err">JavaScript Error: line 42</div>
-                                <div class="stack-item item-net">API CORS Blocked: 500</div>
-                                <div class="stack-item item-root">首要根因: 局域网解析失败</div>
-                            </div>
-                        </div>
-                    </div>
+                    <h3>诊断与会话回放</h3>
+                    <p>深度分析性能，精准回放案现场。</p>
                 </div>
             </div>
-        </div>
-    </section>
-
-    <!-- Workflow Section -->
-    <section id="workflow" class="workflow">
-        <div class="container">
-            <div class="section-intro text-center">
-                <h2 class="section-title">极致简单的工作流。</h2>
-                <p class="section-subtitle">无需复杂的说明书，简单三步即可将案发现场以诊断报告形式流转至开发团队。</p>
-            </div>
-
-            <div class="workflow-stepper">
-                <div class="step-card scroll-reveal">
-                    <div class="step-header">
-                        <span class="step-badge">1</span>
-                        <h3>发现并点击“开始诊断”</h3>
-                    </div>
-                    <p>通过 USB 连入后，系统会自动显示可调试的 WebView。点击“开始诊断”一键架设本地取证代理。</p>
-                </div>
-                <div class="step-card scroll-reveal">
-                    <div class="step-header">
-                        <span class="step-badge">2</span>
-                        <h3>复现异常并静默录制</h3>
-                    </div>
-                    <p>在手机上滑动操作。探针在内存中以零侵入、零开销的方式记录页面 DOM、网络和报错日志。</p>
-                </div>
-                <div class="step-card scroll-reveal">
-                    <div class="step-header">
-                        <span class="step-badge">3</span>
-                        <h3>导出本地诊断包</h3>
-                    </div>
-                    <p>点击“生成报告”，一键导出经过脱敏的便携诊断压缩包，可直接发送给开发人员在本地进行会话复现。</p>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Privacy Prominency (Apple style) -->
-    <section id="privacy" class="privacy-hero">
-        <div class="container text-center">
-            <div class="privacy-icon">🔒</div>
-            <h2 class="privacy-title">隐私，是 ztools 的核心设计原则。</h2>
-            <p class="privacy-subtitle">
-                我们坚信开发者调试的数据应当完全属于开发者自己。ztools 不包含任何云端上传接口，所有的网络代理解析、日志分析与录屏压缩全部在您本地的物理设备中闭环完成。
-            </p>
-        </div>
-    </section>
-
-    <!-- Download Section -->
-    <section class="cta-download">
-        <div class="container text-center">
-            <h2 class="cta-title">ztools</h2>
-            <p class="cta-subtitle">免费、开源的离线调试新标准。</p>
-            <div class="cta-actions">
-                <a href="https://github.com/zhaichong/zdevtools/releases" target="_blank" class="btn btn-primary btn-large">
-                    下载 Windows 客户端 (.exe)
-                </a>
-            </div>
-            <p class="cta-info">支持 Windows 10 / 11 · 64 位系统</p>
         </div>
     </section>
 
     <!-- Footer -->
     <footer class="footer">
         <div class="container">
-            <div class="footer-bottom">
-                <p class="copyright">Copyright © 2026 ztools. 基于 ISC 开源许可发布。由前端与 Android 团队倾力打造。</p>
-                <div class="footer-links">
-                    <a href="https://github.com/zhaichong/zdevtools/issues" target="_blank">提交反馈</a>
-                    <span class="sep">|</span>
-                    <a href="https://github.com/zhaichong/zdevtools/blob/main/AGENTS.md" target="_blank">设计约束</a>
-                </div>
-            </div>
+            <p>© 2026 zdevtools. 基于 ISC 开源许可发布。全部数据储存于本地。</p>
         </div>
     </footer>
-
-    <!-- App Scripts -->
-    <script src="./app.js"></script>
 </body>
 </html>
