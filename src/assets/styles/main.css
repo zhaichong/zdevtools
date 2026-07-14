@@ -3,24 +3,24 @@
 @tailwind utilities;
 
 :root {
-    --bg: #fafafa; /* zinc-50 */
+    --bg: #ffffff; /* white */
     --panel: #ffffff; /* white */
-    --panel-strong: #f4f4f5; /* zinc-100 */
+    --panel-strong: #f9fafb; /* zinc-50 */
     --panel-soft: #ffffff; /* white */
-    --border: #e4e4e7; /* zinc-200 */
-    --border-strong: #d4d4d8; /* zinc-300 */
-    --text: #18181b; /* zinc-900 */
-    --muted: #71717a; /* zinc-500 */
-    --muted-strong: #3f3f46; /* zinc-700 */
-    --accent: #8b5cf6; /* violet-500 */
-    --accent-strong: #7c3aed; /* violet-600 */
+    --border: #e5e7eb; /* zinc-200 */
+    --border-strong: #d1d5db; /* zinc-300 */
+    --text: #111827; /* zinc-900 */
+    --muted: #6b7280; /* zinc-500 */
+    --muted-strong: #374151; /* zinc-700 */
+    --accent: #7c3aed; /* violet-600 */
+    --accent-strong: #6d28d9; /* violet-700 */
     --danger: #ef4444; /* red-500 */
-    --danger-bg: rgba(239, 68, 68, 0.1);
+    --danger-bg: #fef2f2;
     --warning: #f59e0b; /* amber-500 */
-    --warning-bg: rgba(245, 158, 11, 0.1);
-    --success: #22c55e; /* green-500 */
-    --success-bg: rgba(34, 197, 94, 0.1);
-    --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    --warning-bg: #fffbeb;
+    --success: #10b981; /* emerald-500 */
+    --success-bg: #ecfdf5;
+    --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
 }
 
 * {
@@ -486,16 +486,17 @@ input {
 .empty-state {
     padding: 48px 32px;
     text-align: center;
-    border: 1px dashed rgba(255, 255, 255, 0.1);
+    border: 1px dashed var(--border);
     border-radius: 12px;
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--panel-strong);
 }
 
 .muted-row,
 .empty-mini {
     padding: 10px;
     border-radius: 8px;
-    background: #10182b;
+    background: var(--panel-strong);
+    border: 1px solid var(--border);
     font-size: 13px;
 }
 
@@ -535,9 +536,9 @@ input {
 .info-grid div,
 .kv {
     padding: 12px;
-    border: 1px solid transparent;
+    border: 1px solid var(--border);
     border-radius: 8px;
-    background: rgba(16, 24, 43, 0.5);
+    background: var(--panel-strong);
     min-width: 0;
 }
 
@@ -581,19 +582,19 @@ input {
     grid-template-columns: 34px minmax(0, 1fr);
     gap: 10px;
     padding: 12px;
-    border: 1px solid rgba(77, 211, 255, 0.28);
+    border: 1px solid #bae6fd;
     border-radius: 8px;
-    background: #0d1c30;
+    background: #f0f9ff;
 }
 
 .guidance-card.danger {
-    border-color: rgba(255, 107, 122, 0.36);
-    background: #25131d;
+    border-color: #fecaca;
+    background: #fef2f2;
 }
 
 .guidance-card.warning {
-    border-color: rgba(255, 209, 102, 0.32);
-    background: #241f12;
+    border-color: #fef3c7;
+    background: #fffbeb;
 }
 
 .guidance-rank {
@@ -603,8 +604,8 @@ input {
     width: 28px;
     height: 28px;
     border-radius: 999px;
-    background: rgba(77, 211, 255, 0.15);
-    color: var(--accent-strong);
+    background: rgba(124, 58, 237, 0.1);
+    color: var(--accent);
     font-weight: 800;
 }
 
@@ -626,19 +627,19 @@ input {
 
 .issue {
     padding: 12px;
-    border: 1px solid rgba(255, 107, 122, 0.28);
+    border: 1px solid #fecaca;
     border-radius: 8px;
     background: var(--danger-bg);
 }
 
 .issue.warn {
-    border-color: rgba(255, 209, 102, 0.28);
+    border-color: #fef3c7;
     background: var(--warning-bg);
 }
 
 .issue.low-signal {
-    border-color: rgba(159, 176, 202, 0.25);
-    background: #101827;
+    border-color: var(--border);
+    background: var(--panel-strong);
 }
 
 .issue-head {
@@ -695,7 +696,7 @@ input {
     grid-template-columns: minmax(90px, 0.4fr) minmax(0, 1fr);
     gap: 8px;
     padding: 5px 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid var(--border);
 }
 
 .stack-list span {
@@ -717,7 +718,7 @@ input {
     padding: 10px;
     border: 1px solid var(--border);
     border-radius: 8px;
-    background: #10182b;
+    background: var(--panel-strong);
     font-size: 13px;
 }
 
@@ -823,7 +824,7 @@ pre {
     overflow: hidden;
     border: 1px solid var(--border);
     border-radius: 8px;
-    background: #fff;
+    background: var(--panel);
 }
 
 .scan-bar {
@@ -834,7 +835,7 @@ pre {
     min-height: 54px;
     padding: 10px 14px;
     border-bottom: 1px solid var(--border);
-    background: #fff;
+    background: var(--panel);
 }
 
 .scan-title {
@@ -868,22 +869,22 @@ pre {
     border: 1px solid var(--border);
     border-radius: 999px;
     padding: 3px 9px;
-    background: #f8fafc;
-    color: #475569;
+    background: var(--panel-strong);
+    color: var(--muted-strong);
     font-size: 12px;
     white-space: nowrap;
 }
 
 .scan-chip.good {
-    border-color: #bbf7d0;
-    background: #f0fdf4;
-    color: #15803d;
+    border-color: #a7f3d0;
+    background: #ecfdf5;
+    color: #065f46;
 }
 
 .scan-chip.warn {
     border-color: #fde68a;
     background: #fffbeb;
-    color: #b45309;
+    color: #92400e;
 }
 
 .scan-actions {
@@ -896,16 +897,16 @@ pre {
 .devices-list {
     gap: 10px;
     padding: 12px;
-    background: #f8fafc;
+    background: var(--bg);
 }
 
 .device-card {
     border-radius: 8px;
-    background: #fff;
+    background: var(--panel);
 }
 
 .device-card:hover {
-    border-color: #cbd5e1;
+    border-color: var(--border-strong);
 }
 
 .device-header {
@@ -923,13 +924,13 @@ pre {
 }
 
 .device-status {
-    background: #f8fafc;
+    background: var(--panel-strong);
 }
 
 .device-status.device {
-    border-color: #bbf7d0;
-    background: #f0fdf4;
-    color: #15803d;
+    border-color: #a7f3d0;
+    background: #ecfdf5;
+    color: #065f46;
 }
 
 .device-status.offline,
@@ -946,7 +947,7 @@ pre {
 .process-title {
     margin: 0 0 6px;
     padding: 10px 0;
-    border-top: 1px solid #eef2f7;
+    border-top: 1px solid var(--border);
     font-family: Consolas, "Cascadia Mono", monospace;
     font-size: 12px;
 }
@@ -957,9 +958,9 @@ pre {
     align-items: center;
     gap: 12px;
     padding: 10px 12px;
-    border: 1px solid #eef2f7;
+    border: 1px solid var(--border);
     border-radius: 0;
-    background: #fff;
+    background: var(--panel);
 }
 
 .target-item + .target-item {
@@ -979,7 +980,7 @@ pre {
 }
 
 .target-item:hover {
-    background: #f8fafc;
+    background: var(--panel-strong);
 }
 
 .target-line {
@@ -994,11 +995,11 @@ pre {
 .muted-row {
     display: grid;
     gap: 6px;
-    border: 1px dashed #cbd5e1;
+    border: 1px dashed var(--border);
     border-radius: 8px;
     padding: 28px;
-    background: #fff;
-    color: #64748b;
+    background: var(--panel);
+    color: var(--muted);
     text-align: center;
 }
 

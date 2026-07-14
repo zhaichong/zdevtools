@@ -108,46 +108,46 @@ onBeforeUnmount(destroyPlayer);
 </script>
 
 <template>
-    <div class="fixed inset-0 z-50 grid place-items-center p-6 bg-zinc-900/40 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="场景回放">
-        <div ref="shellRef" class="flex flex-col overflow-hidden border border-zinc-200 rounded-xl bg-white shadow-xl shadow-zinc-200 w-full max-w-6xl max-h-[90vh]">
+    <div class="fixed inset-0 z-50 grid place-items-center p-6 bg-zinc-950/25 backdrop-blur-xs select-none" role="dialog" aria-modal="true" aria-label="场景回放">
+        <div ref="shellRef" class="flex flex-col overflow-hidden border border-zinc-200 rounded-xl bg-white shadow-lg w-full max-w-6xl max-h-[90vh]">
             <!-- Header -->
             <header class="flex-none flex items-center justify-between gap-4 p-4 border-b border-zinc-200 bg-zinc-50/50">
                 <div class="flex flex-col">
-                    <h3 class="text-base font-semibold text-zinc-900 m-0 flex items-center gap-2">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                        场景回放
+                    <h3 class="text-xs font-bold text-zinc-800 m-0 flex items-center gap-2">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-violet-600"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                        场景操作回放
                     </h3>
-                    <p class="text-xs text-zinc-500 font-mono mt-1 m-0">事件 {{ events.length }} 条 · 快照 {{ fullSnapshotCount }} 个 · 时长 {{ durationText }}</p>
+                    <p class="text-[10px] text-zinc-400 font-mono mt-1 m-0">事件 {{ events.length }} 条 · 快照 {{ fullSnapshotCount }} 个 · 时长 {{ durationText }}</p>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button class="px-3 py-1.5 text-xs font-medium rounded text-zinc-700 bg-zinc-100 hover:bg-zinc-200 transition-colors border border-transparent outline-none flex items-center gap-1.5 shadow-sm" type="button" @click="loadReplay">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                    <button class="px-3 py-1.5 text-xs font-semibold rounded border border-zinc-200 text-zinc-650 bg-white hover:bg-zinc-50 hover:text-zinc-950 transition-colors cursor-pointer outline-none flex items-center gap-1.5 shadow-3xs" type="button" @click="loadReplay">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
                         重新加载
                     </button>
-                    <button class="w-8 h-8 grid place-items-center rounded text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 transition-colors border border-transparent outline-none" type="button" aria-label="关闭回放" @click="props.onClose">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    <button class="w-8 h-8 grid place-items-center rounded text-zinc-450 hover:bg-zinc-100 hover:text-zinc-850 transition-colors border border-transparent outline-none cursor-pointer" type="button" aria-label="关闭回放" @click="props.onClose">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                     </button>
                 </div>
             </header>
 
             <!-- Body -->
-            <main class="flex-1 min-h-0 grid bg-zinc-50/30 relative">
+            <main class="flex-1 min-h-0 grid bg-zinc-50/20 relative">
                 <div v-if="isLoading" class="absolute inset-0 grid place-content-center justify-items-center gap-3 p-6 text-center z-10">
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent animate-spin"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>
-                    <strong class="text-sm font-semibold text-zinc-900">正在加载回放数据</strong>
-                    <span class="text-xs text-zinc-500">从本机 Electron 用户数据目录读取 rrweb 事件。</span>
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-violet-600 animate-spin"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>
+                    <strong class="text-xs font-semibold text-zinc-800">正在加载回放数据</strong>
+                    <span class="text-[11px] text-zinc-400">从本机 Electron 用户数据目录读取 rrweb 事件。</span>
                 </div>
 
-                <div v-else-if="errorMsg" class="absolute inset-0 grid place-content-center justify-items-center gap-3 p-6 text-center z-10">
-                    <div class="w-12 h-12 rounded-full border border-dashed border-warning/50 flex items-center justify-center mb-2 text-warning">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                <div v-else-if="errorMsg" class="absolute inset-0 grid place-content-center justify-items-center gap-3 p-6 text-center z-10 select-text">
+                    <div class="w-10 h-10 rounded-xl border border-dashed border-amber-300 bg-amber-50 flex items-center justify-center mb-2 text-amber-600">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
                     </div>
-                    <strong class="text-sm font-semibold text-warning">回放暂不可用</strong>
-                    <span class="text-xs text-zinc-600 max-w-md">{{ errorMsg }}</span>
-                    <button class="mt-4 px-4 py-2 text-sm font-medium rounded text-zinc-700 bg-zinc-100 hover:bg-zinc-200 transition-colors border border-transparent outline-none shadow-sm" type="button" @click="loadReplay">重试</button>
+                    <strong class="text-xs font-semibold text-amber-700">回放暂不可用</strong>
+                    <span class="text-[11px] text-zinc-500 max-w-md">{{ errorMsg }}</span>
+                    <button class="mt-4 px-3 py-1.5 text-xs font-semibold rounded border border-zinc-200 text-zinc-650 bg-white hover:bg-zinc-50 hover:text-zinc-950 transition-colors cursor-pointer outline-none shadow-3xs" type="button" @click="loadReplay">重试</button>
                 </div>
 
-                <div v-show="!isLoading && !errorMsg" class="min-w-0 min-h-0 grid place-items-center overflow-auto p-5 custom-scrollbar">
+                <div v-show="!isLoading && !errorMsg" class="min-w-0 min-h-0 grid place-items-center overflow-auto p-5 custom-scrollbar select-text">
                     <div ref="playerContainer" class="min-w-0 min-h-0 relative z-0 rrweb-theme-override"></div>
                 </div>
             </main>

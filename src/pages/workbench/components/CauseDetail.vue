@@ -61,62 +61,62 @@ function priorityColor(priority) {
 </script>
 
 <template>
-    <div v-if="cause" class="flex flex-col gap-8 max-w-4xl mx-auto">
+    <div v-if="cause" class="flex flex-col gap-8 max-w-4xl mx-auto select-text">
         <!-- Hero Section -->
-        <section class="flex flex-col gap-4">
+        <section class="flex flex-col gap-4 select-none">
             <div class="flex flex-col gap-2">
                 <div class="flex items-center gap-3">
                     <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-widest uppercase border" :class="priorityColor(cause.priority)">
                         {{ cause.priority || 'INFO' }}
                     </span>
-                    <span class="text-xs text-zinc-500 font-mono">{{ cause.id }}</span>
+                    <span class="text-xs text-zinc-400 font-mono">{{ cause.id }}</span>
                 </div>
-                <h2 class="text-2xl font-bold text-zinc-900 leading-snug">{{ redact(cause.title || '未命名问题') }}</h2>
-                <p class="text-sm text-zinc-600 leading-relaxed max-w-3xl">{{ redact(cause.summary || cause.reason || '-') }}</p>
+                <h2 class="text-xl font-bold text-zinc-800 leading-snug">{{ redact(cause.title || '未命名问题') }}</h2>
+                <p class="text-xs text-zinc-500 leading-relaxed max-w-3xl">{{ redact(cause.summary || cause.reason || '-') }}</p>
             </div>
             
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
                 <div class="p-3 rounded-lg border border-zinc-200 bg-zinc-50/50">
-                    <dt class="text-[10px] uppercase text-zinc-500 font-semibold mb-1">发生次数</dt>
-                    <dd class="text-lg font-bold text-zinc-900">{{ cause.count || 1 }}</dd>
+                    <dt class="text-[10px] uppercase text-zinc-400 font-semibold mb-1">发生次数</dt>
+                    <dd class="text-lg font-bold text-zinc-800">{{ cause.count || 1 }}</dd>
                 </div>
                 <div class="p-3 rounded-lg border border-zinc-200 bg-zinc-50/50">
-                    <dt class="text-[10px] uppercase text-zinc-500 font-semibold mb-1">最近发生</dt>
-                    <dd class="text-sm font-mono text-zinc-800 mt-1">{{ formatTime(cause.lastSeen) }}</dd>
+                    <dt class="text-[10px] uppercase text-zinc-400 font-semibold mb-1">最近发生</dt>
+                    <dd class="text-xs font-mono text-zinc-700 mt-1.5">{{ formatTime(cause.lastSeen) }}</dd>
                 </div>
                 <div class="p-3 rounded-lg border border-zinc-200 bg-zinc-50/50">
-                    <dt class="text-[10px] uppercase text-zinc-500 font-semibold mb-1">分析置信度</dt>
-                    <dd class="text-lg font-bold text-accent">{{ confidenceText }}</dd>
+                    <dt class="text-[10px] uppercase text-zinc-400 font-semibold mb-1">分析置信度</dt>
+                    <dd class="text-lg font-bold text-violet-600">{{ confidenceText }}</dd>
                 </div>
                 <div class="p-3 rounded-lg border border-zinc-200 bg-zinc-50/50">
-                    <dt class="text-[10px] uppercase text-zinc-500 font-semibold mb-1">排查方向</dt>
-                    <dd class="text-sm font-medium text-zinc-800 mt-1">{{ cause.owner || '-' }}</dd>
+                    <dt class="text-[10px] uppercase text-zinc-400 font-semibold mb-1">排查方向</dt>
+                    <dd class="text-xs font-semibold text-zinc-700 mt-1.5">{{ cause.owner || '-' }}</dd>
                 </div>
             </div>
         </section>
 
         <!-- Suggested Action -->
-        <section class="flex flex-col gap-3 p-5 rounded-xl border border-accent/20 bg-accent/5 relative overflow-hidden">
-            <div class="absolute top-0 left-0 w-1 h-full bg-accent"></div>
-            <h3 class="text-sm font-bold text-zinc-900 flex items-center gap-2">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent"><path d="M2 12h4l3-9 5 18 3-9h5"/></svg>
+        <section class="flex flex-col gap-3 p-5 rounded-xl border border-violet-200 bg-violet-50/30 relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-[3px] h-full bg-violet-600"></div>
+            <h3 class="text-xs font-bold text-zinc-800 flex items-center gap-2 select-none">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-violet-600"><path d="M2 12h4l3-9 5 18 3-9h5"/></svg>
                 建议处理方案
             </h3>
-            <p class="text-sm text-zinc-700 leading-relaxed whitespace-pre-wrap">{{ redact(cause.next || '暂无建议。') }}</p>
+            <p class="text-xs text-zinc-600 leading-relaxed whitespace-pre-wrap">{{ redact(cause.next || '暂无建议。') }}</p>
         </section>
 
         <!-- Code Context -->
         <section class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <article class="flex flex-col gap-2">
-                <h3 class="text-xs font-semibold text-zinc-500 uppercase tracking-wider pl-1">SourceMap 定位</h3>
+                <h3 class="text-[10px] uppercase text-zinc-400 font-semibold tracking-wider pl-1 select-none">SourceMap 定位</h3>
                 <div class="p-3 rounded-lg border border-zinc-200 bg-white font-mono text-xs break-all"
-                     :class="cause.source?.mode === 'source-map' ? 'text-success border-success/30 bg-success/5' : 'text-zinc-500'">
+                     :class="cause.source?.mode === 'source-map' ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-zinc-500 bg-zinc-50/20'">
                     {{ sourceLabel }}
                 </div>
             </article>
             <article class="flex flex-col gap-2">
-                <h3 class="text-xs font-semibold text-zinc-500 uppercase tracking-wider pl-1">触发上下文</h3>
-                <div class="p-3 rounded-lg border border-zinc-200 bg-white font-mono text-xs text-zinc-500 break-all">
+                <h3 class="text-[10px] uppercase text-zinc-400 font-semibold tracking-wider pl-1 select-none">触发上下文</h3>
+                <div class="p-3 rounded-lg border border-zinc-200 bg-zinc-50/20 font-mono text-xs text-zinc-500 break-all">
                     {{ redact(cause.trigger || '-') }}
                 </div>
             </article>
@@ -124,49 +124,49 @@ function priorityColor(priority) {
 
         <!-- Related Evidence -->
         <section class="flex flex-col gap-3">
-            <h3 class="text-sm font-bold text-zinc-900 border-b border-zinc-200 pb-2">关联原始证据</h3>
-            <div v-if="!evidence.length" class="p-4 text-center text-sm text-zinc-500 border border-dashed border-zinc-300 rounded-lg bg-zinc-50/50">
+            <h3 class="text-xs font-bold text-zinc-800 border-b border-zinc-200 pb-2 select-none">关联原始证据</h3>
+            <div v-if="!evidence.length" class="p-4 text-center text-xs text-zinc-400 border border-dashed border-zinc-250 rounded-lg bg-zinc-50/50 select-none">
                 暂无底层的关联证据。
             </div>
             <div v-else class="flex flex-col gap-3">
-                <pre v-for="(item, index) in evidence" :key="index" class="p-4 rounded-lg border border-zinc-200 bg-zinc-50 text-xs font-mono text-zinc-700 overflow-x-auto whitespace-pre-wrap break-words leading-relaxed selection:bg-accent/30">{{ redact(JSON.stringify(item, null, 2)) }}</pre>
+                <pre v-for="(item, index) in evidence" :key="index" class="p-4 rounded-lg border border-zinc-150 bg-zinc-50/50 text-xs font-mono text-zinc-650 overflow-x-auto whitespace-pre-wrap break-words leading-relaxed selection:bg-violet-200">{{ redact(JSON.stringify(item, null, 2)) }}</pre>
             </div>
         </section>
 
         <!-- Related Events -->
         <section class="flex flex-col gap-3">
-            <h3 class="text-sm font-bold text-zinc-900 border-b border-zinc-200 pb-2">错误前线索链</h3>
-            <div v-if="!related.length" class="p-4 text-center text-sm text-zinc-500 border border-dashed border-zinc-300 rounded-lg bg-zinc-50/50">
+            <h3 class="text-xs font-bold text-zinc-800 border-b border-zinc-200 pb-2 select-none">错误前线索链</h3>
+            <div v-if="!related.length" class="p-4 text-center text-xs text-zinc-400 border border-dashed border-zinc-250 rounded-lg bg-zinc-50/50 select-none">
                 暂无关联的历史事件。
             </div>
-            <div v-else class="flex flex-col gap-2">
-                <div v-for="(item, index) in related" :key="index" class="flex items-start gap-3 p-3 rounded-lg border border-zinc-200 bg-white shadow-sm">
-                    <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase border border-zinc-300 bg-zinc-100 text-zinc-500 shrink-0 mt-0.5">
+            <div v-else class="flex flex-col gap-2 select-none">
+                <div v-for="(item, index) in related" :key="index" class="flex items-start gap-3 p-3 rounded-lg border border-zinc-150 bg-white shadow-3xs">
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase border border-zinc-200 bg-zinc-50 text-zinc-450 shrink-0 mt-0.5">
                         {{ item.type || 'event' }}
                     </span>
-                    <strong class="text-sm text-zinc-800 font-medium leading-snug break-words">{{ redact(item.message || '-') }}</strong>
+                    <strong class="text-xs text-zinc-700 font-semibold leading-snug break-words">{{ redact(item.message || '-') }}</strong>
                 </div>
             </div>
         </section>
 
         <!-- Quick Checks -->
-        <section v-if="onEvaluate" class="flex flex-col gap-4 pt-4 border-t border-zinc-200">
+        <section v-if="onEvaluate" class="flex flex-col gap-4 pt-4 border-t border-zinc-200 select-none">
             <div class="flex items-center justify-between">
-                <h3 class="text-sm font-bold text-zinc-900">实时快速检查 (CDP)</h3>
-                <span class="text-xs text-zinc-500">向目标页面注入探针执行验证</span>
+                <h3 class="text-xs font-bold text-zinc-800">实时快速检查 (CDP)</h3>
+                <span class="text-xs text-zinc-400">向目标页面注入探针执行验证</span>
             </div>
             
             <div class="flex flex-wrap gap-2">
-                <button v-for="check in quickChecks" :key="check.label" class="px-3 py-1.5 text-xs font-medium rounded text-zinc-700 bg-zinc-100 hover:bg-zinc-200 border border-zinc-200 transition-colors outline-none flex items-center gap-1.5 shadow-sm" type="button" @click="runCheck(check)">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-zinc-400"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                <button v-for="check in quickChecks" :key="check.label" class="px-3 py-1.5 text-xs font-semibold rounded border border-zinc-200 text-zinc-650 bg-white hover:bg-zinc-50 hover:text-zinc-950 transition-colors cursor-pointer outline-none flex items-center gap-1.5 shadow-3xs" type="button" @click="runCheck(check)">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="text-zinc-450"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                     {{ check.label }}
                 </button>
             </div>
             
-            <div v-if="checks.length > 0" class="flex flex-col gap-2 mt-2">
-                <div v-for="item in checks" :key="item.label" class="flex flex-col gap-1.5 p-3 rounded-lg border border-zinc-200 bg-white shadow-sm">
-                    <span class="text-xs font-semibold text-zinc-600">{{ item.label }}</span>
-                    <code class="text-xs font-mono break-all" :class="item.loading ? 'text-zinc-500 animate-pulse' : (item.result.startsWith('错误') ? 'text-danger' : 'text-success')">
+            <div v-if="checks.length > 0" class="flex flex-col gap-2 mt-2 select-text">
+                <div v-for="item in checks" :key="item.label" class="flex flex-col gap-1.5 p-3 rounded-lg border border-zinc-150 bg-white shadow-3xs">
+                    <span class="text-xs font-semibold text-zinc-500">{{ item.label }}</span>
+                    <code class="text-xs font-mono break-all" :class="item.loading ? 'text-zinc-450 animate-pulse' : (item.result.startsWith('错误') ? 'text-red-650' : 'text-emerald-700 font-bold')">
                         {{ item.loading ? '检查中...' : item.result }}
                     </code>
                 </div>

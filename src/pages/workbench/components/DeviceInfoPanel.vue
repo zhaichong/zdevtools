@@ -60,28 +60,28 @@ async function copyEnvironment() {
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-zinc-50 text-zinc-800 p-4 overflow-auto custom-scrollbar gap-6">
+  <div class="flex flex-col h-full bg-white text-zinc-800 p-4 overflow-auto custom-scrollbar gap-6">
     <!-- Header -->
-    <header class="flex flex-col md:flex-row md:items-end justify-between border-b border-zinc-200 pb-3 shrink-0">
+    <header class="flex flex-col md:flex-row md:items-end justify-between border-b border-zinc-200 pb-3 shrink-0 select-none">
       <div>
-        <h2 class="text-lg font-semibold text-zinc-900 flex items-center gap-2">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
+        <h2 class="text-sm font-bold text-zinc-800 flex items-center gap-2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-violet-600"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
           设备与运行环境
         </h2>
-        <p class="text-xs text-zinc-500 mt-1">只展示排查 WebView 必须看的关键状态。</p>
+        <p class="text-xs text-zinc-400 mt-1">只展示排查 WebView 必须看的关键状态。</p>
       </div>
       <div class="flex items-center gap-3 mt-3 md:mt-0">
-        <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-full border shadow-sm text-xs font-bold tracking-wide uppercase transition-colors"
-             :class="connected ? 'border-success/20 bg-success/10 text-success' : 'border-danger/20 bg-danger/10 text-danger'">
-          <div class="w-1.5 h-1.5 rounded-full animate-pulse" :class="connected ? 'bg-success' : 'bg-danger'"></div>
+        <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-full border shadow-sm text-xs font-semibold tracking-wide uppercase transition-colors"
+             :class="connected ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'">
+          <div class="w-1.5 h-1.5 rounded-full animate-pulse" :class="connected ? 'bg-emerald-500' : 'bg-red-500'"></div>
           {{ connected ? 'CDP 已连接' : 'CDP 未连接' }}
         </div>
       </div>
     </header>
 
     <!-- Top Summary Grid -->
-    <section class="grid grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
-      <div class="flex flex-col gap-1 p-4 rounded-xl border border-zinc-200 bg-white shadow-sm">
+    <section class="grid grid-cols-2 lg:grid-cols-4 gap-4 shrink-0 select-none">
+      <div class="flex flex-col gap-1 p-4 rounded-xl border border-zinc-200 bg-white shadow-2xs">
         <span class="text-xs font-semibold text-zinc-500 uppercase tracking-wider">设备型号</span>
         <strong class="text-lg font-bold text-zinc-900 truncate" :title="deviceName">{{ deviceName }}</strong>
       </div>
@@ -149,15 +149,15 @@ async function copyEnvironment() {
           </span>
         </div>
         <div class="p-4 flex-1">
-          <div v-if="!healthyGlobals.length && !missingGlobals.length" class="h-full flex items-center justify-center text-sm text-zinc-500 border border-dashed border-zinc-300 rounded-lg bg-zinc-50/50">
+          <div v-if="!healthyGlobals.length && !missingGlobals.length" class="h-full flex items-center justify-center text-sm text-zinc-400 border border-dashed border-zinc-200 rounded-lg bg-zinc-50/50">
             暂无全局变量快照
           </div>
           <div v-else class="flex flex-wrap gap-2">
-            <div v-for="[key] in healthyGlobals" :key="key" class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-success/10 border border-success/20 text-success text-xs font-mono font-medium">
+            <div v-for="[key] in healthyGlobals" :key="key" class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-mono font-semibold">
               <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
               {{ key }}
             </div>
-            <div v-for="[key] in missingGlobals" :key="key" class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-danger/10 border border-danger/20 text-danger text-xs font-mono font-medium opacity-80">
+            <div v-for="[key] in missingGlobals" :key="key" class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-red-50 border border-red-200 text-red-700 text-xs font-mono font-medium opacity-85">
               <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
               {{ key }}
             </div>
@@ -168,7 +168,7 @@ async function copyEnvironment() {
 
     <!-- Footer -->
     <footer class="mt-auto flex flex-wrap items-center gap-3 pt-4 border-t border-zinc-200 shrink-0">
-      <button class="px-4 py-2 text-sm font-semibold rounded-lg bg-accent text-white hover:bg-accent-hover transition-colors shadow-lg shadow-accent/20 outline-none" type="button" @click="copyEnvironment">
+      <button class="px-4 py-2 text-xs font-semibold rounded-lg bg-violet-600 hover:bg-violet-700 text-white transition-colors cursor-pointer outline-none shadow-sm" type="button" @click="copyEnvironment">
         复制环境信息
       </button>
       <span class="px-2.5 py-1 rounded-md bg-zinc-100 border border-zinc-200 text-xs text-zinc-500">SourceMap 按需上传</span>

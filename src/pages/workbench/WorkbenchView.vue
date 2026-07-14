@@ -158,15 +158,15 @@ async function onSourceMapUpload(event) {
 </script>
 
 <template>
-    <div class="flex flex-col w-full h-full bg-zinc-50 text-zinc-900">
+    <div class="flex flex-col w-full h-full bg-white text-zinc-900">
         <Teleport to="#workbench-actions">
-            <label class="cursor-pointer text-xs bg-white border border-zinc-200 hover:bg-zinc-50 text-zinc-800 px-3 py-1.5 rounded transition-colors shadow-sm" title="上传 .map 文件或选择 dist 目录">
+            <label class="cursor-pointer text-xs bg-white border border-zinc-200 hover:bg-zinc-50 text-zinc-700 px-3 py-1.5 rounded-lg transition-all duration-150 shadow-3xs font-semibold" title="上传 .map 文件或选择 dist 目录">
                 上传 SourceMap
                 <input type="file" class="hidden" multiple webkitdirectory accept=".map,application/json" @change="onSourceMapUpload">
             </label>
-            <span class="text-xs px-2 py-1.5 rounded border border-zinc-200 bg-white shadow-sm" :class="statusType === 'error' ? 'text-danger border-danger/30 bg-danger/5' : 'text-zinc-500'">{{ statusText }}</span>
-            <button @click="emit('close')" class="text-zinc-500 hover:text-zinc-900 p-1.5 rounded hover:bg-zinc-200 transition-colors ml-2" title="关闭调试会话">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            <span class="text-xs px-2.5 py-1.5 rounded-lg border border-zinc-200 bg-white shadow-3xs font-medium" :class="statusType === 'error' ? 'text-red-700 border-red-200 bg-red-50 font-bold' : 'text-zinc-500'">{{ statusText }}</span>
+            <button @click="emit('close')" class="text-zinc-450 hover:text-zinc-850 p-1.5 rounded-lg hover:bg-zinc-50 border border-transparent hover:border-zinc-250 transition-colors ml-2 cursor-pointer" title="关闭调试会话">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </button>
         </Teleport>
 

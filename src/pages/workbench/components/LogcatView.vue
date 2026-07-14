@@ -77,57 +77,57 @@ watch(displayEntries, async () => {
 </script>
 
 <template>
-    <div class="flex flex-col h-full bg-zinc-50 text-zinc-800 p-4 overflow-hidden gap-4">
+    <div class="flex flex-col h-full bg-white text-zinc-800 p-4 overflow-hidden gap-4">
         <!-- Header -->
-        <header class="flex flex-col md:flex-row md:items-end justify-between border-b border-zinc-200 pb-3">
+        <header class="flex flex-col md:flex-row md:items-end justify-between border-b border-zinc-200 pb-3 select-none">
             <div>
-                <h2 class="text-lg font-semibold text-zinc-900 flex items-center gap-2">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
-                    Logcat Console
+                <h2 class="text-sm font-bold text-zinc-800 flex items-center gap-2">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-violet-600"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+                    Logcat 日志控制台
                 </h2>
-                <p class="text-xs text-zinc-500 mt-1">只看 Android WebView、Chromium 和业务相关日志</p>
+                <p class="text-xs text-zinc-400 mt-1">只看 Android WebView、Chromium 和业务相关日志</p>
             </div>
             <div class="flex items-center gap-3 mt-3 md:mt-0">
-                <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-zinc-200 bg-white text-xs font-medium text-zinc-600 shadow-sm">
+                <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-zinc-200 bg-white text-xs font-medium text-zinc-500 shadow-sm">
                     <span>{{ entries.length.toLocaleString() }} 行</span>
                 </div>
-                <div v-if="warningCount > 0" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-warning/20 bg-warning/10 text-xs font-medium text-warning shadow-inner">
+                <div v-if="warningCount > 0" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-amber-200 bg-amber-50 text-xs font-semibold text-amber-700 shadow-sm">
                     <span>{{ warningCount }} 警告</span>
                 </div>
-                <div v-if="errorCount > 0" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-danger/20 bg-danger/10 text-xs font-medium text-danger shadow-inner">
+                <div v-if="errorCount > 0" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-red-200 bg-red-50 text-xs font-semibold text-red-700 shadow-sm">
                     <span>{{ errorCount }} 错误</span>
                 </div>
             </div>
         </header>
 
         <!-- Toolbar -->
-        <div class="flex flex-wrap items-center gap-2 p-2 rounded-lg border border-zinc-200 bg-white shadow-sm">
-            <button class="px-3 py-1.5 text-xs font-medium rounded text-zinc-700 bg-zinc-100 hover:bg-zinc-200 transition-colors outline-none" type="button" @click="emit('toggle-pause')">
+        <div class="flex flex-wrap items-center gap-2 p-2 rounded-lg border border-zinc-200 bg-white shadow-2xs select-none">
+            <button class="px-3 py-1.5 text-xs font-semibold rounded border border-zinc-200 text-zinc-600 bg-white hover:bg-zinc-50 hover:text-zinc-950 transition-colors cursor-pointer outline-none" type="button" @click="emit('toggle-pause')">
                 {{ paused ? '▶ 继续' : '⏸ 暂停' }}
             </button>
-            <button class="px-3 py-1.5 text-xs font-medium rounded text-zinc-700 bg-zinc-100 hover:bg-zinc-200 transition-colors outline-none" type="button" @click="emit('clear')">
+            <button class="px-3 py-1.5 text-xs font-semibold rounded border border-zinc-200 text-zinc-600 bg-white hover:bg-zinc-50 hover:text-zinc-950 transition-colors cursor-pointer outline-none" type="button" @click="emit('clear')">
                 清空
             </button>
             <div class="flex-1 relative min-w-[200px]">
                 <div class="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
-                    <svg class="h-4 w-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                    <svg class="h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                 </div>
                 <input
                     type="text"
                     :value="searchText"
                     placeholder="搜索 tag、关键字或错误..."
-                    class="w-full pl-9 pr-3 py-1.5 text-xs bg-white border border-zinc-200 rounded text-zinc-800 placeholder-zinc-400 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-shadow"
+                    class="w-full pl-9 pr-3 py-1.5 text-xs bg-white border border-zinc-200 rounded text-zinc-800 placeholder-zinc-400 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/50 transition-all duration-150"
                     @input="updateSearch($event.target.value)"
                 />
             </div>
-            <select :value="filterLevel" @change="updateFilter($event.target.value)" class="px-2.5 py-1.5 text-xs bg-white border border-zinc-200 rounded text-zinc-800 focus:outline-none focus:border-accent">
+            <select :value="filterLevel" @change="updateFilter($event.target.value)" class="px-2.5 py-1.5 text-xs bg-white border border-zinc-200 rounded text-zinc-600 focus:outline-none focus:border-violet-500 cursor-pointer font-medium">
                 <option value="all">全部级别</option>
                 <option v-for="(label, key) in levelLabels" :key="key" :value="key">{{ label }} ({{ key }})</option>
             </select>
-            <button class="px-3 py-1.5 text-xs font-medium rounded text-zinc-700 bg-zinc-100 hover:bg-zinc-200 transition-colors outline-none" type="button" @click="emit('toggle-auto-scroll')">
+            <button class="px-3 py-1.5 text-xs font-semibold rounded border border-zinc-200 text-zinc-600 bg-white hover:bg-zinc-50 hover:text-zinc-950 transition-colors cursor-pointer outline-none" type="button" @click="emit('toggle-auto-scroll')">
                 {{ autoScroll ? '滚动: 开' : '滚动: 关' }}
             </button>
-            <button class="px-3 py-1.5 text-xs font-medium rounded text-zinc-700 bg-zinc-100 hover:bg-zinc-200 transition-colors outline-none" type="button" @click="emit('refresh')">
+            <button class="px-3 py-1.5 text-xs font-semibold rounded border border-zinc-200 text-zinc-600 bg-white hover:bg-zinc-50 hover:text-zinc-950 transition-colors cursor-pointer outline-none" type="button" @click="emit('refresh')">
                 刷新
             </button>
         </div>
