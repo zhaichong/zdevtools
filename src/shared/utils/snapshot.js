@@ -1,5 +1,6 @@
 import { BRIDGE_METHODS } from '../constants.js';
-import { buildRedactSource } from './redact-rules.cjs';
+import redactRules from './redact-rules.cjs';
+const buildRedactSource = redactRules.buildRedactSource || redactRules.default?.buildRedactSource || (() => '');
 
 /**
  * 生成运行时快照表达式（通过 CDP Runtime.evaluate 注入页面执行）

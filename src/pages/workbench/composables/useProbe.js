@@ -1,6 +1,7 @@
 import { BRIDGE_METHODS } from '@/shared/constants.js';
 import rrwebScript from '../../../../node_modules/rrweb/dist/rrweb.umd.min.cjs?raw';
-import { buildRedactSource } from '@/shared/utils/redact-rules.cjs';
+import redactRules from '@/shared/utils/redact-rules.cjs';
+const buildRedactSource = redactRules.buildRedactSource || redactRules.default?.buildRedactSource || (() => '');
 
 /**
  * 探针注入和轮询 composable
