@@ -43,6 +43,7 @@
       "icon": "build/icon.png"
     },
     "nsis": {
+      "artifactName": "ztools.Setup.${version}.exe",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true
