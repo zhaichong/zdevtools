@@ -1,6 +1,6 @@
-# Local Inspect
+# Ztools
 
-Local Inspect 是一款专为离线或局域网环境设计的私有 Android WebView 诊断工具。它能够通过 ADB 自动发现可调试的 Android WebView，开启本地调试工作台，嵌入内置的 Chrome DevTools 前端，并直接从目标页面收集前端错误凭证。
+Ztools 是一款专为离线或局域网环境设计的私有 Android WebView 诊断工具。它能够通过 ADB 自动发现可调试的 Android *HarmonyOS* WebView，开启本地调试工作台，嵌入内置的 Chrome DevTools 前端，并直接从目标页面收集前端错误凭证。
 
 ## 能够帮助定位的问题
 
@@ -58,4 +58,3 @@ npm start
 - 如果没有显示 WebView 目标，请确认 Android 应用中已启用 `WebView.setWebContentsDebuggingEnabled(true)`。
 
 # zdevtools
-
