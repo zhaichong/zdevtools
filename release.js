@@ -3,16 +3,7 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 
 function gitEnv() {
-    const env = { ...process.env };
-    for (const key of ['ALL_PROXY', 'all_proxy', 'HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy']) {
-        if (/^socks5?:\/\/127\.0\.0\.1:(7891|17891)$/i.test(env[key] || '')) {
-            delete env[key];
-        }
-    }
-    env.NO_PROXY = [env.NO_PROXY, 'github.com', '.github.com']
-        .filter(Boolean)
-        .join(',');
-    return env;
+    return { ...process.env };
 }
 
 function execGit(command, options = {}) {
