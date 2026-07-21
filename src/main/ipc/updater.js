@@ -6,7 +6,8 @@ function setupUpdaterIpc(ipcMain, getMainWindow) {
     if (!app.isPackaged) {
         autoUpdater.forceDevUpdateConfig = true;
     }
-    autoUpdater.autoDownload = false; // 改为手动下载，让用户在 UI 中看到进度
+    autoUpdater.autoDownload = true; // 后台自动静默下载新版本
+    autoUpdater.autoInstallOnAppQuit = true; // 应用退出时自动安装，实现无感更新
     autoUpdater.disableDifferentialDownload = true; // 禁用差分下载，使用全量安装包以保证最高稳定性
 
     let isManualCheck = false; // 标记是否为手动点击检查更新
