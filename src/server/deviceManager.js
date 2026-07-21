@@ -335,23 +335,56 @@ async function _doGetDeviceTargets(driverType = 'adb') {
         })
     );
 
-    // 探测 HDC 手动映射的端口（如果是 HDC 驱动且有活跃设备）
+    // 探测 / 主动建立 HDC TCP 调试映射（鸿蒙 NWeb 常见为 tcp:9222，而非 abstract socket）
     if (driverResult && driverResult.driver.type === 'hdc' && devices.length > 0 && driverResult.driver.probeManualForwards) {
-        const primaryDevice = devices[0];
-        const manualProcesses = await driverResult.driver.probeManualForwards(primaryDevice.id);
-        if (manualProcesses.length > 0) {
-            primaryDevice.processes.unshift(...manualProcesses);
+        const usedPorts = new Set();
+        for (const d of devices) {
+            for (const p of d.processes || []) {
+                if (p.localPort) usedPorts.add(p.localPort);
+            }
         }
+        for (const fw of allExistingForwards || []) {
+            if (fw.localPort) usedPorts.add(fw.localPort);
+        }
+
+        await Promise.all(devices.map(async (device) => {
+            try {
+                const manualProcesses = await driverResult.driver.probeManualForwards(device.id, { usedPorts });
+                if (manualProcesses.length > 0) {
+                    device.processes.unshift(...manualProcesses);
+                    for (const p of manualProcesses) {
+                        if (p.localPort) usedPorts.add(p.localPort);
+                    }
+                    // abstract 路径未找到 socket 时会写入该提示；TCP 映射成功后应移除，避免误导
+                    if (device.processes.some(p => p.targets?.length > 0)) {
+                        device.diagnostics = (device.diagnostics || []).filter(
+                            msg => !/No debuggable WebView target found/i.test(msg)
+                        );
+                    }
+                }
+            } catch (e) {
+                device.diagnostics = device.diagnostics || [];
+                device.diagnostics.push(`HDC TCP probe failed: ${e.message || e}`);
+            }
+        }));
     }
 
-    // 只保留能调试的设备（含有有效 targets 的设备）
-    const validDevices = devices.filter(d => 
+    // 优先返回带可调试 target 的设备；若全部无 target 则仍返回在线设备，避免 UI 误报「未检测到设备」
+    const withTargets = devices.filter(d =>
         d.processes && d.processes.some(p => p.targets && p.targets.length > 0)
     );
+    const resultDevices = withTargets.length > 0 ? withTargets : devices;
 
-    console.log(`[DeviceManager] getDeviceTargets completed in ${Date.now() - startTime}ms for ${validDevices.length} device(s)`);
+    if (withTargets.length === 0 && devices.length > 0) {
+        diagnostics.messages.push({
+            level: 'warn',
+            message: '已检测到设备，但未发现可调试 WebView。鸿蒙请确认目标页在前台，并已开启 Web 调试（TCP 9222 或 DevEco 映射）。'
+        });
+    }
 
-    return { status: 'success', diagnostics, devices: validDevices };
+    console.log(`[DeviceManager] getDeviceTargets completed in ${Date.now() - startTime}ms for ${resultDevices.length} device(s) (${withTargets.length} with targets)`);
+
+    return { status: 'success', diagnostics, devices: resultDevices };
 }
 
 // 缓存驱动映射，以便 logStream 可以快速找到驱动

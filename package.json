@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node tests/diagnostic-run.test.mjs && node tests/redact.test.mjs",
+    "test": "node tests/diagnostic-run.test.mjs && node tests/redact.test.mjs && node tests/hdc-discovery.test.mjs",
     "start": "electron .",
     "pack": "vite build && electron-builder --dir",
     "dist": "vite build && electron-builder",

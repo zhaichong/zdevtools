@@ -2,9 +2,12 @@ const { execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+const net = require('net');
 const { withRetry, parseDevtoolsSockets, createLogStreamManager } = require('./baseDriver.js');
+const { FORWARD_PORT_MIN, FORWARD_PORT_MAX } = require('../constants.js');
 
 const HDC_TIMEOUT_MS = 6000;
+const HDC_TCP_PROBE_PORTS = [9222, 9223, 9224, 9225, 9226];
 
 let _cachedHdcPath = null;
 
@@ -47,24 +50,136 @@ function parseDevices(output) {
         });
 }
 
+/**
+ * 解析 hdc fport ls 输出。
+ * 支持：
+ * - abstract: [id] tcp:LOCAL localabstract:SOCKET
+ * - tcp→tcp:  [id] tcp:LOCAL tcp:REMOTE （含引号/制表符，如 'tcp:9222 tcp:9222'\t[Forward]）
+ *
+ * @returns {Array<{id:string, localPort:number, socket:string, kind:'abstract'|'tcp', remotePort?:number}>}
+ */
 function parseForwards(output) {
-    // hdc fport ls
-    // f4012241524a3131581562b11e9ebc00 tcp:9222 localabstract:webview_devtools_remote_1234
-    // 注意：HDC 输出格式可能变化，部分版本不输出设备 ID
-    return output.split(/\r?\n/).reduce((items, line) => {
-        const matchNoId = line.match(/tcp:(\d+)\s+localabstract:(\S+)/);
-        if (matchNoId) {
-            const possibleIdMatch = line.match(/^([A-Za-z0-9_-]+)\s+tcp:/);
-            const id = possibleIdMatch ? possibleIdMatch[1] : '*';  // 无法确定 ID 时标记为 *
-            const port = Number.parseInt(matchNoId[1], 10);
-            const socket = matchNoId[2];
-            // 过滤掉解析失败的条目（端口为 NaN）
+    return (output || '').split(/\r?\n/).reduce((items, rawLine) => {
+        // 去掉 hdc 可能包在规则两侧的单引号，以及尾部 [Forward] 标记
+        const line = rawLine
+            .replace(/^\s*'/, '')
+            .replace(/'\s*(?:\[Forward\])?\s*$/i, '')
+            .replace(/\s*\[Forward\]\s*$/i, '')
+            .trim();
+        if (!line) return items;
+
+        // 设备 ID 不能是 tcp:/localabstract: 前缀本身（避免 'tcp:9222 tcp:9222' 误解析）
+        const possibleIdMatch = line.match(/^([A-Za-z0-9_.:-]+)\s+tcp:/i);
+        let id = '*';
+        if (possibleIdMatch && !/^tcp:/i.test(possibleIdMatch[1]) && !/^localabstract:/i.test(possibleIdMatch[1])) {
+            id = possibleIdMatch[1];
+        }
+
+        const abstractMatch = line.match(/tcp:(\d+)\s+localabstract:(\S+)/i);
+        if (abstractMatch) {
+            const port = Number.parseInt(abstractMatch[1], 10);
+            const socket = abstractMatch[2];
             if (!Number.isNaN(port) && socket) {
-                items.push({ id, localPort: port, socket });
+                items.push({ id, localPort: port, socket, kind: 'abstract' });
+            }
+            return items;
+        }
+
+        const tcpMatch = line.match(/tcp:(\d+)\s+tcp:(\d+)/i);
+        if (tcpMatch) {
+            const localPort = Number.parseInt(tcpMatch[1], 10);
+            const remotePort = Number.parseInt(tcpMatch[2], 10);
+            if (!Number.isNaN(localPort) && !Number.isNaN(remotePort)) {
+                items.push({
+                    id,
+                    localPort,
+                    remotePort,
+                    socket: `tcp:${remotePort}`,
+                    kind: 'tcp'
+                });
             }
         }
         return items;
     }, []);
+}
+
+function requestJson(url, timeout = 1000) {
+    return new Promise((resolve) => {
+        let settled = false;
+        const req = http.get(url, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                if (settled) return;
+                settled = true;
+                try {
+                    resolve({ ok: true, data: JSON.parse(data) });
+                } catch (e) {
+                    resolve({ ok: false, data: [] });
+                }
+            });
+        });
+        req.on('error', () => {
+            if (settled) return;
+            settled = true;
+            resolve({ ok: false, data: [] });
+        });
+        req.setTimeout(timeout, () => {
+            if (!settled) {
+                settled = true;
+                resolve({ ok: false, data: [] });
+            }
+            req.destroy();
+        });
+    });
+}
+
+function isLocalPortFree(port) {
+    return new Promise((resolve) => {
+        const server = net.createServer();
+        server.unref();
+        server.once('error', () => resolve(false));
+        server.listen(port, '127.0.0.1', () => {
+            server.close(() => resolve(true));
+        });
+    });
+}
+
+async function findFreeLocalPort(preferred, usedPorts) {
+    const tryPort = async (port) => {
+        if (usedPorts.has(port)) return null;
+        if (await isLocalPortFree(port)) return port;
+        return null;
+    };
+
+    if (preferred != null) {
+        const hit = await tryPort(preferred);
+        if (hit != null) return hit;
+    }
+
+    for (let port = FORWARD_PORT_MIN; port <= FORWARD_PORT_MAX; port++) {
+        const hit = await tryPort(port);
+        if (hit != null) return hit;
+    }
+    return null;
+}
+
+function extractPageTargets(list, deviceId, localPort, processName) {
+    return (list || [])
+        .filter(t => ['page', 'webview'].includes(t.type) && (t.url || t.title))
+        .map(t => ({
+            id: t.id,
+            type: t.type,
+            title: t.title,
+            url: t.url,
+            description: t.description,
+            faviconUrl: t.faviconUrl,
+            devtoolsFrontendUrl: t.devtoolsFrontendUrl,
+            webSocketDebuggerUrl: t.webSocketDebuggerUrl,
+            localPort,
+            deviceId,
+            processName
+        }));
 }
 
 // 日志流管理器（共享订阅者模式）
@@ -75,77 +190,134 @@ const logStream = createLogStreamManager({
 });
 
 /**
- * 探测本地常用网络映射端口（9222-9226）
- * 鸿蒙开发者可能用 hdc fport 或 DevEco 映射，这些不会出现在 /proc/net/unix
- * @param {string} deviceId - 主设备 ID（用于给探测到的 target 赋值）
- * @returns {Promise<Array>} - 探测到的 process 列表
+ * 探测 / 主动建立鸿蒙 Web 调试 TCP 映射（9222-9226）
+ * 鸿蒙 NWeb/ArkWeb 通常在设备侧监听 TCP 9222，而不是 Android 的 localabstract devtools_remote。
+ * @param {string} deviceId
+ * @param {{ usedPorts?: Iterable<number> }} [options]
+ * @returns {Promise<Array>} process 列表（与 abstract 路径结构一致）
  */
-async function probeManualForwards(deviceId) {
-    const probePorts = [9222, 9223, 9224, 9225, 9226];
+async function probeManualForwards(deviceId, options = {}) {
+    const usedPorts = new Set(options.usedPorts || []);
     const processes = [];
-    
-    function requestJson(url, timeout = 1000) {
-        return new Promise((resolve) => {
-            let settled = false;
-            const req = http.get(url, (res) => {
-                let data = '';
-                res.on('data', chunk => data += chunk);
-                res.on('end', () => {
-                    if (settled) return;
-                    settled = true;
-                    try {
-                        resolve({ ok: true, data: JSON.parse(data) });
-                    } catch (e) {
-                        resolve({ ok: false, data: [] });
-                    }
-                });
-            });
-            req.on('error', () => {
-                if (settled) return;
-                settled = true;
-                resolve({ ok: false, data: [] });
-            });
-            req.setTimeout(timeout, () => {
-                if (!settled) {
-                    settled = true;
-                    resolve({ ok: false, data: [] });
-                }
-                req.destroy();
-            });
-        });
-    }
+    const seenTargetIds = new Set();
 
-    await Promise.all(probePorts.map(async (port) => {
+    const pushProcess = (localPort, targets, hint) => {
+        const fresh = targets.filter(t => {
+            if (seenTargetIds.has(t.id)) return false;
+            seenTargetIds.add(t.id);
+            return true;
+        });
+        if (fresh.length === 0) return;
+        usedPorts.add(localPort);
+        processes.push({
+            processName: `HDC Forward (${localPort})`,
+            processHint: hint || 'TCP Mapping',
+            localPort,
+            forwardOk: true,
+            targets: fresh
+        });
+    };
+
+    // 1) 先扫本机已有监听（DevEco / 手工映射 / 上次遗留）
+    await Promise.all(HDC_TCP_PROBE_PORTS.map(async (port) => {
         try {
             const result = await requestJson(`http://127.0.0.1:${port}/json/list`);
-            if (result.ok && result.data && result.data.length > 0) {
-                const targets = result.data.filter(t => ['page', 'webview'].includes(t.type) && (t.url || t.title));
+            if (result.ok && result.data?.length) {
+                const targets = extractPageTargets(result.data, deviceId, port, `hdc-fport-${port}`);
                 if (targets.length > 0) {
-                    const enrichedTargets = targets.map(t => ({
-                        id: t.id, type: t.type, title: t.title, url: t.url, description: t.description,
-                        faviconUrl: t.faviconUrl, devtoolsFrontendUrl: t.devtoolsFrontendUrl,
-                        webSocketDebuggerUrl: t.webSocketDebuggerUrl, localPort: port,
-                        deviceId, processName: `hdc-fport-${port}`
-                    }));
-                    processes.push({
-                        processName: `HDC Forward (${port})`,
-                        processHint: 'Manual Mapping',
-                        localPort: port,
-                        forwardOk: true,
-                        targets: enrichedTargets
-                    });
+                    pushProcess(port, targets, 'Existing Mapping');
                 }
             }
         } catch (e) {
-            // ignore if port is not open
+            // ignore
         }
     }));
+
+    // 已覆盖全部候选端口则无需再建 forward
+    if (processes.length > 0 && HDC_TCP_PROBE_PORTS.every(p => usedPorts.has(p) || processes.some(pr => pr.localPort === p))) {
+        // 仍可能有未命中的 remote；继续下面逻辑补漏
+    }
+
+    // 2) 解析已有 fport，优先复用 tcp→tcp
+    let existingForwards = [];
+    try {
+        const fwResult = await runHdc(['fport', 'ls']);
+        existingForwards = parseForwards(fwResult.stdout || '');
+    } catch (e) {
+        existingForwards = [];
+    }
+
+    for (const fw of existingForwards) {
+        if (fw.localPort) usedPorts.add(fw.localPort);
+    }
+
+    for (const remotePort of HDC_TCP_PROBE_PORTS) {
+        // 该 remote 是否已通过上面的本机扫描拿到 target
+        if (processes.some(p => p.targets?.some(t => t.localPort === p.localPort) && p.localPort === remotePort)) {
+            continue;
+        }
+        // 已有指向该 remote 的 tcp forward
+        const existing = existingForwards.find(f =>
+            f.kind === 'tcp' &&
+            f.remotePort === remotePort &&
+            (f.id === '*' || f.id === deviceId)
+        );
+        if (existing) {
+            try {
+                const result = await requestJson(`http://127.0.0.1:${existing.localPort}/json/list`);
+                if (result.ok && result.data?.length) {
+                    const targets = extractPageTargets(
+                        result.data, deviceId, existing.localPort, `hdc-fport-${existing.localPort}`
+                    );
+                    if (targets.length > 0) {
+                        pushProcess(existing.localPort, targets, 'Reused TCP Forward');
+                        continue;
+                    }
+                }
+            } catch (e) {
+                // fall through to recreate
+            }
+        }
+
+        // 3) 主动建立 tcp→tcp：优先 local==remote
+        // 若本机该端口已在 processes 中出过 target，跳过
+        if (processes.some(p => p.localPort === remotePort && p.targets?.length)) continue;
+
+        const localPort = await findFreeLocalPort(remotePort, usedPorts);
+        if (localPort == null) continue;
+
+        const forwardResult = await runHdcWithRetry([
+            '-t', deviceId, 'fport', `tcp:${localPort}`, `tcp:${remotePort}`
+        ]);
+        let createdByUs = forwardResult.ok;
+
+        // 部分 hdc 在规则已存在时返回非 0；仍尝试探测
+        try {
+            const result = await requestJson(`http://127.0.0.1:${localPort}/json/list`);
+            if (result.ok && result.data?.length) {
+                const targets = extractPageTargets(result.data, deviceId, localPort, `hdc-fport-${localPort}`);
+                if (targets.length > 0) {
+                    pushProcess(localPort, targets, createdByUs ? 'TCP Mapping' : 'Existing Mapping');
+                    continue;
+                }
+            }
+        } catch (e) {
+            // ignore
+        }
+
+        // 新建但无 CDP 响应：清掉空规则，避免堆积僵尸 fport
+        if (createdByUs) {
+            await runHdc(['fport', 'rm', `tcp:${localPort}`, `tcp:${remotePort}`]);
+        }
+    }
+
     return processes;
 }
 
 module.exports = {
     type: 'hdc',
     name: 'HarmonyOS HDC',
+    parseForwards,
 
     checkAvailability: async () => {
         const result = await runHdcWithRetry(['-v']); // HDC version check is safer than list forwards
@@ -195,9 +367,33 @@ module.exports = {
         return { ok: result.ok, error: result.error || result.stderr };
     },
 
-    removeForward: async (id, localPort) => {
-        const result = await runHdcWithRetry(['-t', id, 'fport', 'rm', `tcp:${localPort}`]);
+    createTcpForward: async (id, localPort, remotePort) => {
+        const result = await runHdcWithRetry(['-t', id, 'fport', `tcp:${localPort}`, `tcp:${remotePort}`]);
         return { ok: result.ok, error: result.error || result.stderr };
+    },
+
+    removeForward: async (id, localPort) => {
+        // hdc 删除规则时：优先带完整规则两端，失败再退回只删 local
+        const listed = await runHdc(['fport', 'ls']);
+        const forwards = parseForwards(listed.stdout || '');
+        const match = forwards.find(f => f.localPort === localPort && (f.id === '*' || !id || f.id === id));
+        if (match) {
+            const remote = match.kind === 'tcp'
+                ? `tcp:${match.remotePort}`
+                : `localabstract:${match.socket}`;
+            const fullArgs = id
+                ? ['-t', id, 'fport', 'rm', `tcp:${localPort}`, remote]
+                : ['fport', 'rm', `tcp:${localPort}`, remote];
+            // 不带 -t 的形式（hdc 对部分版本更稳）
+            const plainArgs = ['fport', 'rm', `tcp:${localPort}`, remote];
+            let result = await runHdc(plainArgs);
+            if (!result.ok) result = await runHdc(fullArgs);
+            if (result.ok) return { ok: true, error: '' };
+        }
+        const fallback = id
+            ? await runHdcWithRetry(['-t', id, 'fport', 'rm', `tcp:${localPort}`])
+            : await runHdcWithRetry(['fport', 'rm', `tcp:${localPort}`]);
+        return { ok: fallback.ok, error: fallback.error || fallback.stderr };
     },
 
     removeAllForwards: async () => {
@@ -208,9 +404,14 @@ module.exports = {
         let failedCount = 0;
         let lastError = '';
         for (const f of forwards) {
-            const id = f.id === '*' ? '' : f.id;
-            const args = id ? ['-t', id, 'fport', 'rm', `tcp:${f.localPort}`] : ['fport', 'rm', `tcp:${f.localPort}`];
-            const removeResult = await runHdc(args);
+            const remote = f.kind === 'tcp'
+                ? `tcp:${f.remotePort}`
+                : `localabstract:${f.socket}`;
+            // 实测 hdc 需要 `fport rm tcp:L tcp:R` 两端，单 local 会 Fail
+            let removeResult = await runHdc(['fport', 'rm', `tcp:${f.localPort}`, remote]);
+            if (!removeResult.ok && f.id && f.id !== '*') {
+                removeResult = await runHdc(['-t', f.id, 'fport', 'rm', `tcp:${f.localPort}`, remote]);
+            }
             if (!removeResult.ok) {
                 failedCount++;
                 lastError = removeResult.error || removeResult.stderr;
@@ -225,10 +426,10 @@ module.exports = {
     startLogStream: logStream.startLogStream,
     stopLogStream: logStream.stopLogStream,
     killAllLogStreams: logStream.killAll,
-    
+
     /**
-     * HarmonyOS 专属：探测手动映射的端口（9222-9226）
-     * 这些端口由 DevEco 或手动 hdc fport 创建，不会出现在 /proc/net/unix
+     * HarmonyOS 专属：探测/建立 TCP 调试映射（9222-9226）
+     * 这些端口由 NWeb/ArkWeb 或 DevEco 提供，通常不会出现在 /proc/net/unix 的 devtools_remote 里
      */
     probeManualForwards
 };

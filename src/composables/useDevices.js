@@ -68,6 +68,15 @@ export function useDevices() {
 
         if (!d.devices?.length) {
             diags.push({ message: '未检测到设备。请确认 USB 已连接、已开启调试，并允许电脑调试。', isError: false });
+        } else if (!targets) {
+            // 后端已可能写入同类提示；这里补一条前端可读说明，避免只靠标题区分
+            const hasBackendHint = diags.some(item => /未发现可调试 WebView|No debuggable/i.test(item.message));
+            if (!hasBackendHint) {
+                diags.push({
+                    message: '已检测到设备，但未发现可调试 WebView。请确认目标应用在前台且已开启 WebView/HDC 调试。',
+                    isError: false
+                });
+            }
         }
 
         diagnostics.value = diags;
