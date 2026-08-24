@@ -3,8 +3,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
     // ADB / 设备相关
     getTargets: (driverType) => ipcRenderer.invoke('get-targets', driverType),
+    getWsProxyToken: () => ipcRenderer.invoke('get-ws-proxy-token'),
     startLogcat: (deviceId, driverType) => ipcRenderer.invoke('start-logcat', deviceId, driverType),
-    stopLogcat: (deviceId) => ipcRenderer.invoke('stop-logcat', deviceId),
+    stopLogcat: (deviceId, driverType) => ipcRenderer.invoke('stop-logcat', deviceId, driverType),
     onLogcatChunk: (callback) => {
         const handler = (_event, chunk) => callback(chunk);
         ipcRenderer.on('logcat-chunk', handler);

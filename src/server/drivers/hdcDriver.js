@@ -103,6 +103,13 @@ function parseForwards(output) {
     }, []);
 }
 
+function shouldProbeExistingTcpPort(deviceId, port, forwards, claimedPorts, { allowUnowned = false } = {}) {
+    const forward = (forwards || []).find(item => item.kind === 'tcp' && item.localPort === port);
+    if (forward?.id === deviceId) return true;
+    if (forward?.id && forward.id !== '*') return false;
+    return allowUnowned && !claimedPorts?.has(port);
+}
+
 function requestJson(url, timeout = 1000) {
     return new Promise((resolve) => {
         let settled = false;
@@ -166,16 +173,16 @@ async function findFreeLocalPort(preferred, usedPorts) {
 
 function extractPageTargets(list, deviceId, localPort, processName) {
     return (list || [])
-        .filter(t => ['page', 'webview'].includes(t.type) && (t.url || t.title))
+        .filter(t => Boolean(t && t.id && (['page', 'webview', 'other'].includes(t.type) || t.webSocketDebuggerUrl)))
         .map(t => ({
             id: t.id,
-            type: t.type,
-            title: t.title,
-            url: t.url,
-            description: t.description,
-            faviconUrl: t.faviconUrl,
-            devtoolsFrontendUrl: t.devtoolsFrontendUrl,
-            webSocketDebuggerUrl: t.webSocketDebuggerUrl,
+            type: t.type || 'page',
+            title: t.title || t.url || `WebView (${t.id.slice(0, 8)})`,
+            url: t.url || '',
+            description: t.description || '',
+            faviconUrl: t.faviconUrl || '',
+            devtoolsFrontendUrl: t.devtoolsFrontendUrl || '',
+            webSocketDebuggerUrl: t.webSocketDebuggerUrl || '',
             localPort,
             deviceId,
             processName
@@ -198,28 +205,50 @@ const logStream = createLogStreamManager({
  */
 async function probeManualForwards(deviceId, options = {}) {
     const usedPorts = new Set(options.usedPorts || []);
+    const claimedPorts = options.claimedPorts || new Set();
     const processes = [];
     const seenTargetIds = new Set();
 
-    const pushProcess = (localPort, targets, hint) => {
+    const pushProcess = (localPort, targets, hint, createdRemotePort = null) => {
         const fresh = targets.filter(t => {
             if (seenTargetIds.has(t.id)) return false;
             seenTargetIds.add(t.id);
             return true;
         });
-        if (fresh.length === 0) return;
+        // Target IDs are only unique within one CDP endpoint. Even if this endpoint
+        // contributes no new UI target, retain ownership of a forward we created so
+        // teardown can remove it.
+        if (fresh.length === 0 && createdRemotePort == null) return;
         usedPorts.add(localPort);
+        claimedPorts.add(localPort);
         processes.push({
             processName: `HDC Forward (${localPort})`,
             processHint: hint || 'TCP Mapping',
             localPort,
             forwardOk: true,
-            targets: fresh
+            targets: fresh,
+            ownedForward: createdRemotePort == null ? null : {
+                localPort,
+                remotePort: createdRemotePort,
+                socket: `tcp:${createdRemotePort}`
+            }
         });
     };
 
+    // 先读取转发表，避免把同一个本地 TCP 端口错误归属给每台已连接设备。
+    let existingForwards = [];
+    try {
+        const fwResult = await runHdc(['fport', 'ls']);
+        existingForwards = parseForwards(fwResult.stdout || '');
+    } catch (e) {
+        existingForwards = [];
+    }
+
     // 1) 先扫本机已有监听（DevEco / 手工映射 / 上次遗留）
     await Promise.all(HDC_TCP_PROBE_PORTS.map(async (port) => {
+        if (!shouldProbeExistingTcpPort(deviceId, port, existingForwards, claimedPorts, {
+            allowUnowned: options.allowUnownedExisting
+        })) return;
         try {
             const result = await requestJson(`http://127.0.0.1:${port}/json/list`);
             if (result.ok && result.data?.length) {
@@ -239,14 +268,6 @@ async function probeManualForwards(deviceId, options = {}) {
     }
 
     // 2) 解析已有 fport，优先复用 tcp→tcp
-    let existingForwards = [];
-    try {
-        const fwResult = await runHdc(['fport', 'ls']);
-        existingForwards = parseForwards(fwResult.stdout || '');
-    } catch (e) {
-        existingForwards = [];
-    }
-
     for (const fw of existingForwards) {
         if (fw.localPort) usedPorts.add(fw.localPort);
     }
@@ -263,6 +284,9 @@ async function probeManualForwards(deviceId, options = {}) {
             (f.id === '*' || f.id === deviceId)
         );
         if (existing) {
+            if (!shouldProbeExistingTcpPort(deviceId, existing.localPort, existingForwards, claimedPorts, {
+                allowUnowned: options.allowUnownedExisting
+            })) continue;
             try {
                 const result = await requestJson(`http://127.0.0.1:${existing.localPort}/json/list`);
                 if (result.ok && result.data?.length) {
@@ -297,7 +321,7 @@ async function probeManualForwards(deviceId, options = {}) {
             if (result.ok && result.data?.length) {
                 const targets = extractPageTargets(result.data, deviceId, localPort, `hdc-fport-${localPort}`);
                 if (targets.length > 0) {
-                    pushProcess(localPort, targets, createdByUs ? 'TCP Mapping' : 'Existing Mapping');
+                    pushProcess(localPort, targets, createdByUs ? 'TCP Mapping' : 'Existing Mapping', createdByUs ? remotePort : null);
                     continue;
                 }
             }
@@ -318,6 +342,7 @@ module.exports = {
     type: 'hdc',
     name: 'HarmonyOS HDC',
     parseForwards,
+    shouldProbeExistingTcpPort,
 
     checkAvailability: async () => {
         const result = await runHdcWithRetry(['-v']); // HDC version check is safer than list forwards

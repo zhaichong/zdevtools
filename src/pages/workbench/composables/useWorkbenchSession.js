@@ -18,8 +18,12 @@ export function useWorkbenchSession(config) {
     const probe = reactive({ breadcrumbs: [], errors: [], network: [] });
     const profile = ref(identifyProject(config.url));
 
-    const cdpClient = useCdpClient(config.port, config.targetId, { includeTime: true });
-    const { injectProbe, pollProbe, setupAutoReinject, dispose: disposeProbe } = useProbe(cdpClient);
+    const cdpClient = useCdpClient(config.port, config.targetId, {
+        includeTime: true,
+        wsDebuggerPath: config.wsDebuggerPath,
+        proxyToken: () => config.proxyToken
+    });
+    const { injectProbe, pollProbe, setupAutoReinject, dispose: disposeProbe, cleanupTarget } = useProbe(cdpClient);
     const { buildRootCauses, buildBreadcrumbs, dedupeEvents, normalizeEventForCause, relatedCache } = useRootCauses();
     const { sourceStats, handleSourceMapFiles, applySourceToCauses } = useSourceMap();
     const { buildReport: buildReportObj, fallbackReport } = useReport();
@@ -60,15 +64,19 @@ export function useWorkbenchSession(config) {
     }
 
     async function setupRrwebBindings() {
-        await window.electronAPI?.clearRrwebChunks?.(config.targetId);
-        await cdpClient.send('Runtime.addBinding', { name: '__rrweb_emit' });
+        try {
+            const storageKey = config.key || config.targetId;
+            await cdpClient.send('Runtime.addBinding', { name: '__rrweb_emit' });
 
-        rrwebBindingHandler = (params) => {
-            if (params.name === '__rrweb_emit' && window.electronAPI) {
-                window.electronAPI.saveRrwebChunk(config.targetId, params.payload);
-            }
-        };
-        cdpClient.onEvent('Runtime.bindingCalled', rrwebBindingHandler);
+            rrwebBindingHandler = (params) => {
+                if (params.name === '__rrweb_emit' && window.electronAPI) {
+                    window.electronAPI.saveRrwebChunk(storageKey, params.payload);
+                }
+            };
+            cdpClient.onEvent('Runtime.bindingCalled', rrwebBindingHandler);
+        } catch (e) {
+            console.warn('[workbench] Runtime.addBinding not supported or failed, rrweb replay disabled:', e.message);
+        }
     }
 
     function setStatus(text, type = '') {
@@ -108,6 +116,20 @@ export function useWorkbenchSession(config) {
         });
     }
 
+    async function resumeSessionCollection() {
+        await reconnectCdp();
+        await setupRrwebBindings();
+        await injectProbe();
+        setupAutoReinject(() => {
+            setStatus('探针已重注入', 'busy');
+            setTimeout(() => setStatus('监听中', ''), 1500);
+        });
+        if (!pollTimer) {
+            pollTimer = setInterval(doPoll, 1800);
+        }
+        setStatus('监听中', '');
+    }
+
     async function collect({ reconnect }, triggerSelectedCauseIdUpdate) {
         if (collectInFlight) return; // 防止并发 collect 导致状态交错
         collectInFlight = true;
@@ -115,30 +137,42 @@ export function useWorkbenchSession(config) {
         setStatus('采集中', 'busy');
         try {
             phase = '创建诊断会话';
+            const hadRun = Boolean(diagnosticRun.runId.value);
             await diagnosticRun.createRun(profile.value);
+            if (!hadRun && diagnosticRun.runId.value) {
+                await window.electronAPI?.clearRrwebChunks?.(config.key || config.targetId);
+            }
             logcatManager.startStream(config.deviceId, config.driverType);
             if (reconnect || !cdpClient.connected.value) {
-                phase = '重建 CDP 连接';
-                await reconnectCdp();
-                phase = '绑定回放通道';
-                await setupRrwebBindings();
+                phase = '建立 CDP 诊断与采集通道';
+                await resumeSessionCollection();
+            } else {
+                phase = '注入探针';
+                await injectProbe();
+                setupAutoReinject(() => {
+                    setStatus('探针已重注入', 'busy');
+                    setTimeout(() => setStatus('监听中', ''), 1500);
+                });
             }
-            phase = '注入探针';
-            await injectProbe();
             await delay(700);
             phase = '读取探针数据';
-            const probeData = await pollProbe();
-            if (probeData) Object.assign(probe, probeData);
+            try {
+                const probeData = await pollProbe();
+                if (probeData) Object.assign(probe, probeData);
+            } catch (e) {
+                console.warn('[workbench] poll probe warning:', e.message);
+            }
             phase = '采集页面快照';
-            snapshot.value = await cdpClient.evaluate(runtimeSnapshotExpression());
+            try {
+                snapshot.value = await cdpClient.evaluate(runtimeSnapshotExpression());
+            } catch (e) {
+                console.warn('[workbench] runtime snapshot warning:', e.message);
+                snapshot.value = null;
+            }
             profile.value = identifyProject(config.url, snapshot.value, allRawEvents());
             phase = '生成诊断报告';
             renderReport(triggerSelectedCauseIdUpdate);
             setStatus('监听中', '');
-            setupAutoReinject(() => {
-                setStatus('探针已重注入', 'busy');
-                setTimeout(() => setStatus('监听中', ''), 1500);
-            });
         } catch (error) {
             setStatus('连接异常', 'error');
             report.value = fallbackReport(config, profile.value, error, phase);
@@ -174,7 +208,23 @@ export function useWorkbenchSession(config) {
      * 仅在连接就绪后执行，不影响初次 collect
      */
     async function onPanelChange(panelName) {
+        const prevPanel = currentPanel;
         currentPanel = panelName;
+        if (panelName === 'devtools') {
+            // 切入 Chrome DevTools 面板：暂时断开后台 cdpClient，避免与 iframe 内的 DevTools 互相抢占踢下线
+            if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+            await cleanupTarget();
+            cdpClient.close();
+            return;
+        }
+        if (prevPanel === 'devtools') {
+            // 从 DevTools 切回：重新连接 cdpClient 并成套恢复全部采集能力
+            try {
+                await resumeSessionCollection();
+            } catch (e) {
+                console.warn('[workbench] resume collection after devtools panel exit failed:', e);
+            }
+        }
         if (!cdpClient.connected.value) return;
         try {
             await cdpClient.enableDomainsForPanel(panelName);
@@ -214,8 +264,8 @@ export function useWorkbenchSession(config) {
         resumeAllStreams();
         if (pollTimer) clearInterval(pollTimer);
         cdpClient.removeAllListeners();
-        cdpClient.close();
-        logcatManager.stopStream(config.deviceId);
+        cleanupTarget().finally(() => cdpClient.close());
+        logcatManager.stopStream(config.deviceId, config.driverType);
     });
 
     return {

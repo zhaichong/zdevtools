@@ -8,7 +8,10 @@ const { errorHandler } = require('./middleware.js');
 /** @type {import('http').Server|null} */
 let httpServer = null;
 
-async function startServer() {
+async function startServer({ proxyCapability } = {}) {
+    if (typeof proxyCapability !== 'string' || proxyCapability.length < 32) {
+        throw new Error('A strong WebSocket proxy capability is required');
+    }
     const app = express();
     const server = createServer(app);
     httpServer = server; // 保存引用供优雅关闭
@@ -45,7 +48,7 @@ async function startServer() {
     app.use(errorHandler);
 
     // WebSocket 代理
-    mountWsUpgrade(server, proxy);
+    mountWsUpgrade(server, proxy, proxyCapability);
 
     const port = await findFreePort(8999);
     return new Promise((resolve, reject) => {

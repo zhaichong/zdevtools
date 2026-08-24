@@ -2,7 +2,7 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 const assert = require('assert');
-const { parseForwards } = require('../src/server/drivers/hdcDriver.js');
+const { parseForwards, shouldProbeExistingTcpPort } = require('../src/server/drivers/hdcDriver.js');
 
 // abstract + device id
 {
@@ -72,5 +72,20 @@ const { parseForwards } = require('../src/server/drivers/hdcDriver.js');
 // empty / null safe
 assert.deepStrictEqual(parseForwards(''), []);
 assert.deepStrictEqual(parseForwards(null), []);
+
+// A TCP forward belongs to its HDC device. Unknown external ports are only
+// safe to use in an explicitly single-device context.
+{
+    const forwards = [
+        { id: 'device-a', localPort: 9222, remotePort: 9222, kind: 'tcp' },
+        { id: '*', localPort: 9223, remotePort: 9223, kind: 'tcp' }
+    ];
+    const claimed = new Set([9223]);
+    assert.equal(shouldProbeExistingTcpPort('device-a', 9222, forwards, claimed), true);
+    assert.equal(shouldProbeExistingTcpPort('device-b', 9222, forwards, claimed), false);
+    assert.equal(shouldProbeExistingTcpPort('device-a', 9223, forwards, claimed), false);
+    assert.equal(shouldProbeExistingTcpPort('device-b', 9224, forwards, claimed), false);
+    assert.equal(shouldProbeExistingTcpPort('device-b', 9224, forwards, claimed, { allowUnowned: true }), true);
+}
 
 console.log('hdc-discovery tests passed');

@@ -13,7 +13,7 @@ import { RingBuffer } from '../utils/ring-buffer.js';
  * @returns {object}
  */
 export function useCdpClient(port, targetId, options = {}) {
-    const { includeTime = false, connectTimeout = 5000, sendTimeout = 7000 } = options;
+    const { includeTime = false, connectTimeout = 5000, sendTimeout = 7000, wsDebuggerPath = '', proxyToken = '' } = options;
     const connected = ref(false);
     // shallowRef: 事件数组只整体替换，不做深响应式代理（2000 个对象的 Proxy 开销大）
     const events = shallowRef([]);
@@ -30,6 +30,7 @@ export function useCdpClient(port, targetId, options = {}) {
     let id = 1;
     let closed = false;           // 标记已关闭，阻止重连
     let reconnectTimer = null;    // 跟踪重连定时器，close() 时取消
+    let activeAttempt = null;     // 尚未建立的 socket，close() 时也必须释放其超时定时器
     let wasConnected = false;     // 标记是否曾成功连接过（用于重连检测）
     const pending = new Map();    // msgId -> { resolve, reject, timeoutId }
     const listeners = new Map(); // method -> Set<callback>
@@ -159,71 +160,149 @@ export function useCdpClient(port, targetId, options = {}) {
         handleMessage(payload);
     }
 
+    let currentEpoch = 0;
+    let connectReject = null;
+
     function connect() {
         return new Promise((resolve, reject) => {
+            currentEpoch++;
+            const epoch = currentEpoch;
+            closed = false; // 重置关闭标记，允许新连接
+            connectReject = reject;
+
             let attempts = 0;
             const maxAttempts = 5;
+            let settled = false;
             const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-            const wsUrl = `${protocol}://${location.host}/ws-proxy/${port}/devtools/page/${targetId}`;
-            closed = false; // 重置关闭标记，允许新连接
+            const cleanTargetId = String(targetId || '').trim();
+            const targetPath = wsDebuggerPath
+                ? (wsDebuggerPath.startsWith('/') ? wsDebuggerPath : `/${wsDebuggerPath}`)
+                : (cleanTargetId.startsWith('/') ? cleanTargetId : `/devtools/page/${cleanTargetId}`);
+            const token = typeof proxyToken === 'function' ? proxyToken() : proxyToken;
+            if (!token) {
+                reject(new Error('CDP proxy capability is unavailable'));
+                return;
+            }
+            const separator = targetPath.includes('?') ? '&' : '?';
+            const wsUrl = `${protocol}://${location.host}/ws-proxy/${port}${targetPath}${separator}ztools_token=${encodeURIComponent(token)}`;
+
+            function safeReject(err) {
+                if (!settled && epoch === currentEpoch) {
+                    settled = true;
+                    connectReject = null;
+                    reject(err);
+                }
+            }
+
+            function safeResolve() {
+                if (!settled && epoch === currentEpoch) {
+                    settled = true;
+                    connectReject = null;
+                    resolve();
+                }
+            }
+
+            function retryOrReject(reason) {
+                if (closed || epoch !== currentEpoch) return;
+                if (attempts < maxAttempts) {
+                    const delay = Math.min(1000 * Math.pow(2, attempts - 1), 10000);
+                    console.log(`[cdp] ${reason}, reconnecting in ${delay}ms (attempt ${attempts}/${maxAttempts})`);
+                    reconnectTimer = setTimeout(tryConnect, delay);
+                } else {
+                    safeReject(new Error(`CDP connection failed (${reason}) after ${maxAttempts} attempts`));
+                }
+            }
 
             function tryConnect() {
-                if (closed) return; // 已关闭则不再创建新连接
+                if (closed || epoch !== currentEpoch) return;
                 attempts++;
-                ws = new WebSocket(wsUrl);
 
-                const timeoutMs = connectTimeout * attempts; // 递增超时
+                let socket;
+                try {
+                    socket = new WebSocket(wsUrl);
+                } catch (e) {
+                    console.error('[cdp] new WebSocket failed:', e);
+                    safeReject(e);
+                    return;
+                }
+
+                const timeoutMs = connectTimeout * attempts;
+                let timedOut = false;
+                let opened = false;
                 const timer = setTimeout(() => {
-                    ws.close();
-                    if (closed) return;
-                    if (attempts < maxAttempts) {
-                        const delay = Math.min(1000 * Math.pow(2, attempts - 1), 10000);
-                        console.log(`[cdp] connect timeout, retrying in ${delay}ms (attempt ${attempts}/${maxAttempts})`);
-                        reconnectTimer = setTimeout(tryConnect, delay);
-                    } else {
-                        reject(new Error(`CDP connect failed after ${maxAttempts} attempts`));
-                    }
+                    if (epoch !== currentEpoch || closed) return;
+                    timedOut = true;
+                    console.warn(`[cdp] connect attempt ${attempts} timed out after ${timeoutMs}ms, closing socket`);
+                    try {
+                        if (socket.readyState <= WebSocket.OPEN) {
+                            socket.close();
+                        }
+                    } catch (e) {}
+                    // close(1000) is also used by browsers for failed handshakes, so do not
+                    // rely on onclose to infer that this was a normal user-initiated close.
+                    retryOrReject('connect timeout');
                 }, timeoutMs);
+                activeAttempt = { socket, timer };
 
-                ws.onopen = () => {
+                socket.onopen = () => {
                     clearTimeout(timer);
-                    if (closed) { ws.close(); return; } // 如果在等待期间被 close()
+                    if (closed || timedOut || epoch !== currentEpoch) {
+                        try { socket.close(); } catch (e) {}
+                        return;
+                    }
+                    if (activeAttempt?.socket === socket) activeAttempt = null;
+                    opened = true;
+                    ws = socket;
                     connected.value = true;
-                    console.log(`[cdp] connected on attempt ${attempts}`);
-                    // 重连后自动重新启用 CDP domains
+                    console.log(`[cdp] connected on attempt ${attempts} (epoch ${epoch})`);
                     if (wasConnected) {
                         enable().catch(e => console.warn('[cdp] re-enable after reconnect failed:', e));
                     }
                     wasConnected = true;
-                    attempts = 0; // 重置重试次数，保障无限自愈
-                    resolve();
+                    attempts = 0;
+                    safeResolve();
                 };
 
-                ws.onerror = () => {
+                socket.onerror = (e) => {
+                    // Keep the attempt timeout armed until onclose. Some embedded WebViews
+                    // emit error before (and occasionally long before) their close event.
+                    console.warn(`[cdp] socket error on ${wsUrl}`);
+                };
+
+                socket.onmessage = (event) => {
+                    if (epoch !== currentEpoch || closed) return;
+                    onMessage(event);
+                };
+
+                socket.onclose = (event) => {
                     clearTimeout(timer);
-                    // 让 onclose 处理重试逻辑
-                };
+                    if (activeAttempt?.socket === socket) activeAttempt = null;
+                    if (epoch !== currentEpoch) {
+                        // 属于过期的旧连接事件，直接忽略
+                        return;
+                    }
 
-                ws.onmessage = event => onMessage(event);
-
-                ws.onclose = (event) => {
+                    if (ws === socket) {
+                        ws = null;
+                    }
                     connected.value = false;
-                    clearTimeout(timer);
+
                     // 清理未完成的请求及其超时定时器
                     for (const p of pending.values()) {
                         clearTimeout(p.timeoutId);
                         p.reject(new Error('CDP connection closed'));
                     }
                     pending.clear();
-                    // 清空已启用 domain 记录，确保重连后能重新发送 enable 命令
                     enabledDomains.clear();
 
-                    // 已关闭、正常关闭(code 1000)、或已达最大重试次数则不重连
-                    if (closed || event.code === 1000 || attempts >= maxAttempts) return;
+                    if (closed || timedOut) {
+                        return;
+                    }
 
-                    const delay = Math.min(1000 * Math.pow(2, attempts - 1), 10000);
-                    console.log(`[cdp] disconnected (code=${event.code}), reconnecting in ${delay}ms (attempt ${attempts}/${maxAttempts})`);
-                    reconnectTimer = setTimeout(tryConnect, delay);
+                    // A successfully opened connection closing normally is intentional; a
+                    // pre-open close with 1000 is still a failed handshake and must retry.
+                    if (opened && event.code === 1000) return;
+                    retryOrReject(`disconnected (code=${event.code})`);
                 };
             }
 
@@ -265,8 +344,12 @@ export function useCdpClient(port, targetId, options = {}) {
      */
     async function enableDomain(domain, params) {
         if (enabledDomains.has(domain)) return;
-        await send(`${domain}.enable`, params);
-        enabledDomains.add(domain);
+        try {
+            await send(`${domain}.enable`, params);
+            enabledDomains.add(domain);
+        } catch (e) {
+            console.warn(`[cdp] enable domain ${domain} warning:`, e.message);
+        }
     }
 
     /**
@@ -325,23 +408,44 @@ export function useCdpClient(port, targetId, options = {}) {
 
     function close() {
         closed = true;
+        currentEpoch++; // 递增世代，使所有未完成的连接尝试失效
+        if (connectReject) {
+            try { connectReject(new Error('CDP connection closed')); } catch (e) {}
+            connectReject = null;
+        }
         // 取消待触发的重连定时器
         if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+        if (activeAttempt) {
+            clearTimeout(activeAttempt.timer);
+            try { activeAttempt.socket.close(1000, 'Client closed'); } catch (e) {}
+            activeAttempt = null;
+        }
         // 取消 debounce sync 定时器
         if (syncTimer) { clearTimeout(syncTimer); syncTimer = null; }
-        // 清除所有 pending 请求的超时定时器
-        for (const p of pending.values()) clearTimeout(p.timeoutId);
+        // 清除所有 pending 请求并显式 reject，防止调用方（如 pollProbe）挂起
+        for (const p of pending.values()) {
+            clearTimeout(p.timeoutId);
+            try { p.reject(new Error('CDP connection closed')); } catch (e) {}
+        }
         pending.clear();
         // 禁用除基础域外的所有 CDP Domain（通知目标停止推送事件）
-        if (ws && ws.readyState === 1) { // 仅 OPEN 状态可 send
+        if (ws && ws.readyState === WebSocket.OPEN) {
             for (const domain of [...enabledDomains]) {
                 if (BASE_DOMAINS.includes(domain)) continue;
-                ws.send(JSON.stringify({ id: id++, method: `${domain}.disable`, params: {} }));
+                try {
+                    ws.send(JSON.stringify({ id: id++, method: `${domain}.disable`, params: {} }));
+                } catch (e) {}
             }
         }
         enabledDomains.clear();
-        // 关闭 WebSocket（readyState 0/1 均可调 close 安全关闭/中止连接）
-        if (ws && ws.readyState <= 1) ws.close();
+        connected.value = false;
+        // 关闭 WebSocket
+        if (ws) {
+            try {
+                if (ws.readyState <= WebSocket.OPEN) ws.close(1000, 'Client closed');
+            } catch (e) {}
+            ws = null;
+        }
     }
 
     /** 强制同步环形缓冲区到 events ref（外部 poll 前调用以确保获取最新数据） */

@@ -13,8 +13,8 @@ function setupDeviceIpc(ipcMain) {
         return await startLogStream(deviceId, event.sender, driverType);
     });
 
-    ipcMain.handle('stop-logcat', async (event, deviceId) => {
-        stopLogStream(deviceId, event.sender);
+    ipcMain.handle('stop-logcat', async (event, deviceId, driverType) => {
+        stopLogStream(deviceId, event.sender, driverType);
         return { status: 'success' };
     });
 }

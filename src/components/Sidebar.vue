@@ -43,24 +43,24 @@
                 <div class="max-h-64 overflow-y-auto custom-scrollbar py-0.5">
                     <button
                         v-for="target in targets"
-                        :key="`${target.deviceId}:${target.port}:${target.targetId}`"
+                        :key="target.key || `${target.deviceId}:${target.port}:${target.targetId}`"
                         type="button"
                         @click="selectTarget(target)"
                         class="w-full text-left px-3 py-2 flex items-start gap-2.5 hover:bg-zinc-50 transition-colors cursor-pointer group"
                     >
-                        <span class="w-1.5 h-1.5 rounded-full shrink-0 mt-1.5" :class="activeTargetId === target.targetId ? 'bg-violet-600 animate-pulse' : 'bg-zinc-300'"></span>
+                        <span class="w-1.5 h-1.5 rounded-full shrink-0 mt-1.5" :class="(activeTargetKey ? activeTargetKey === target.key : activeTargetId === target.targetId) ? 'bg-violet-600 animate-pulse' : 'bg-zinc-300'"></span>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-1.5 justify-between">
-                                <span class="font-medium text-xs truncate" :class="activeTargetId === target.targetId ? 'text-violet-700 font-semibold' : 'text-zinc-800'">
+                                <span class="font-medium text-xs truncate" :class="(activeTargetKey ? activeTargetKey === target.key : activeTargetId === target.targetId) ? 'text-violet-700 font-semibold' : 'text-zinc-800'">
                                     {{ target.title || '未命名 WebView' }}
                                 </span>
-                                <span class="text-[9px] rounded border px-1.5 py-0.2 uppercase font-semibold scale-90 shrink-0" :class="activeTargetId === target.targetId ? 'border-violet-200 bg-violet-100/50 text-violet-700' : 'bg-zinc-100 text-zinc-500 border-zinc-200'">
+                                <span class="text-[9px] rounded border px-1.5 py-0.2 uppercase font-semibold scale-90 shrink-0" :class="(activeTargetKey ? activeTargetKey === target.key : activeTargetId === target.targetId) ? 'border-violet-200 bg-violet-100/50 text-violet-700' : 'bg-zinc-100 text-zinc-500 border-zinc-200'">
                                     {{ target.driverType || 'auto' }}
                                 </span>
                             </div>
                             <div class="text-[10px] text-zinc-400 truncate mt-0.5 flex justify-between">
                                 <span>{{ target.model || target.deviceId }}</span>
-                                <span v-if="activeTargetId === target.targetId" class="text-violet-600 font-bold shrink-0">诊断中</span>
+                                <span v-if="(activeTargetKey ? activeTargetKey === target.key : activeTargetId === target.targetId)" class="text-violet-600 font-bold shrink-0">诊断中</span>
                                 <span v-else class="text-zinc-300 group-hover:text-violet-500 transition-colors font-medium shrink-0">点击调试</span>
                             </div>
                         </div>
@@ -87,6 +87,10 @@ const props = defineProps({
         type: Object,
         default: () => ({ text: '初始化中', type: 'busy' })
     },
+    activeTargetKey: {
+        type: String,
+        default: null
+    },
     activeTargetId: {
         type: String,
         default: null
@@ -99,7 +103,7 @@ const isOpen = ref(false);
 const dropdownRef = ref(null);
 
 const activeTarget = computed(() => {
-    return props.targets.find(t => t.targetId === props.activeTargetId) || null;
+    return props.targets.find(t => (props.activeTargetKey ? t.key === props.activeTargetKey : t.targetId === props.activeTargetId)) || null;
 });
 
 const statusDotClass = computed(() => {

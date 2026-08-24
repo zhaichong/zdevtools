@@ -5,6 +5,24 @@ const { FORWARD_PORT_MIN, FORWARD_PORT_MAX } = require('./constants.js');
 const { findFreePort } = require('./portfinder.js');
 const TARGET_TIMEOUT_MS = 1000;
 const drivers = [adbDriver, hdcDriver];
+// 只记录本进程成功创建的映射；绝不清理 Android Studio/DevEco 等外部工具的映射。
+const ownedForwards = new Map();
+
+function forwardKey(driverType, deviceId, localPort) {
+    return `${driverType}:${deviceId}:${localPort}`;
+}
+
+async function removeOwnedForward(driver, record) {
+    const forwards = await limitCli(() => driver.listForwards()).catch(() => []);
+    const stillOwned = forwards.some(forward =>
+        (forward.id === record.deviceId || (driver.type === 'hdc' && forward.id === '*')) &&
+        forward.localPort === record.localPort &&
+        forward.socket === record.socket
+    );
+    if (!stillOwned) return false;
+    const result = await limitCli(() => driver.removeForward(record.deviceId, record.localPort));
+    return Boolean(result?.ok);
+}
 
 // Simple concurrency limiter
 function asyncLimit(concurrency) {
@@ -165,6 +183,11 @@ async function processDevice(driver, baseDevice, portMap, preDiscoveredSockets) 
             const forwardResult = await limitCli(() => driver.createForward(device.id, portInfo.port, socket));
             forwardOk = forwardResult.ok;
             forwardError = forwardResult.error;
+            if (forwardOk) {
+                ownedForwards.set(forwardKey(driver.type, device.id, portInfo.port), {
+                    deviceId: device.id, localPort: portInfo.port, socket
+                });
+            }
         }
 
         processInfo.forwardOk = forwardOk;
@@ -182,14 +205,19 @@ async function processDevice(driver, baseDevice, portMap, preDiscoveredSockets) 
             processInfo.diagnostics.push(`Socket ${socket} unresponsive (${targetResult.error || targetResult.statusCode}). Process might be dead.`);
         } else {
             processInfo.targets = (targetResult.data || [])
-                .filter(target => ['page', 'webview'].includes(target.type))
-                .filter(target => target.url || target.title)
+                .filter(target => Boolean(target && target.id && (['page', 'webview', 'other'].includes(target.type) || target.webSocketDebuggerUrl)))
                 .map(target => ({
-                    id: target.id, type: target.type, title: target.title, url: target.url,
-                    description: target.description, faviconUrl: target.faviconUrl,
-                    devtoolsFrontendUrl: target.devtoolsFrontendUrl,
-                    webSocketDebuggerUrl: target.webSocketDebuggerUrl,
-                    localPort: portInfo.port, deviceId: device.id, processName: socket
+                    id: target.id,
+                    type: target.type || 'page',
+                    title: target.title || target.url || `WebView (${target.id.slice(0, 8)})`,
+                    url: target.url || '',
+                    description: target.description || '',
+                    faviconUrl: target.faviconUrl || '',
+                    devtoolsFrontendUrl: target.devtoolsFrontendUrl || '',
+                    webSocketDebuggerUrl: target.webSocketDebuggerUrl || '',
+                    localPort: portInfo.port,
+                    deviceId: device.id,
+                    processName: socket
                 }));
         }
         return processInfo;
@@ -278,18 +306,16 @@ async function _doGetDeviceTargets(driverType = 'adb') {
         const onlineDevices = (driverResult.devices || []).filter(d => d.status === 'device');
         allParsedDevices = allParsedDevices.concat(onlineDevices.map(d => ({ ...d, _driver: driverResult.driver })));
 
-        // 动态清理失效设备的端口
+        // 仅清理本进程创建、且所属设备已掉线的映射。
         if (driverResult.driver.removeForward) {
             const activeDeviceIds = new Set(onlineDevices.map(d => d.id));
-            for (const fw of driverResult.forwards || []) {
-                if (fw.id !== '*' && !activeDeviceIds.has(fw.id)) {
-                    // 这个转发关联的设备已经掉线，移除
-                    limitCli(() => driverResult.driver.removeForward(fw.id, fw.localPort)).catch(e => {
-                        console.error(`Failed to clean up stale forward for ${fw.id}`, e);
-                    });
+            for (const [key, record] of ownedForwards) {
+                if (!key.startsWith(`${driverResult.driver.type}:`) || activeDeviceIds.has(record.deviceId)) continue;
+                removeOwnedForward(driverResult.driver, record).catch(e => {
+                    console.error(`Failed to clean up owned stale forward for ${record.deviceId}`, e);
+                }).finally(() => ownedForwards.delete(key));
                 }
             }
-        }
 
         // 获取每个设备的 Sockets
         const devSockets = await Promise.all(
@@ -346,15 +372,28 @@ async function _doGetDeviceTargets(driverType = 'adb') {
         for (const fw of allExistingForwards || []) {
             if (fw.localPort) usedPorts.add(fw.localPort);
         }
+        const claimedManualPorts = new Set();
 
-        await Promise.all(devices.map(async (device) => {
+        for (const device of devices) {
             try {
-                const manualProcesses = await driverResult.driver.probeManualForwards(device.id, { usedPorts });
-                if (manualProcesses.length > 0) {
-                    device.processes.unshift(...manualProcesses);
-                    for (const p of manualProcesses) {
-                        if (p.localPort) usedPorts.add(p.localPort);
-                    }
+                const manualProcesses = await driverResult.driver.probeManualForwards(device.id, {
+                    usedPorts,
+                    claimedPorts: claimedManualPorts,
+                    // 无设备 ID 的 DevEco/手工映射无法在多设备场景安全归属；仅单设备时使用。
+                    allowUnownedExisting: devices.length === 1
+                });
+                    if (manualProcesses.length > 0) {
+                        device.processes.unshift(...manualProcesses);
+                        for (const p of manualProcesses) {
+                            if (p.localPort) usedPorts.add(p.localPort);
+                            if (p.ownedForward) {
+                                ownedForwards.set(forwardKey('hdc', device.id, p.ownedForward.localPort), {
+                                    deviceId: device.id,
+                                    localPort: p.ownedForward.localPort,
+                                    socket: p.ownedForward.socket
+                                });
+                            }
+                        }
                     // abstract 路径未找到 socket 时会写入该提示；TCP 映射成功后应移除，避免误导
                     if (device.processes.some(p => p.targets?.length > 0)) {
                         device.diagnostics = (device.diagnostics || []).filter(
@@ -366,7 +405,7 @@ async function _doGetDeviceTargets(driverType = 'adb') {
                 device.diagnostics = device.diagnostics || [];
                 device.diagnostics.push(`HDC TCP probe failed: ${e.message || e}`);
             }
-        }));
+        }
     }
 
     // 优先返回带可调试 target 的设备；若全部无 target 则仍返回在线设备，避免 UI 误报「未检测到设备」
@@ -387,11 +426,10 @@ async function _doGetDeviceTargets(driverType = 'adb') {
     return { status: 'success', diagnostics, devices: resultDevices };
 }
 
-// 缓存驱动映射，以便 logStream 可以快速找到驱动
-const logStreamMap = new Map();
-
 async function startLogStream(deviceId, webContents, driverType) {
-    if (!deviceId) return { status: 'error', message: 'deviceId is required' };
+    if (!deviceId || !drivers.some(driver => driver.type === driverType)) {
+        return { status: 'error', message: 'A valid deviceId and driverType are required' };
+    }
     
     let targetDriver = null;
     
@@ -400,36 +438,18 @@ async function startLogStream(deviceId, webContents, driverType) {
         targetDriver = drivers.find(d => d.type === driverType);
     } 
     
-    // 降级：如果没传，走 O(n) 轮询
-    if (!targetDriver) {
-        for (const driver of drivers) {
-            try {
-                const avail = await driver.checkAvailability();
-                if (avail.available) {
-                    const devs = await driver.listDevices();
-                    if (devs.find(d => d.id === deviceId)) {
-                        targetDriver = driver;
-                        break;
-                    }
-                }
-            } catch(e) {}
-        }
-    }
-
     if (!targetDriver) {
         return { status: 'error', message: `Device ${deviceId} not found or no driver available` };
     }
 
-    logStreamMap.set(deviceId, targetDriver);
     return targetDriver.startLogStream(deviceId, webContents);
 }
 
-function stopLogStream(deviceId, webContents) {
-    const driver = logStreamMap.get(deviceId);
+function stopLogStream(deviceId, webContents, driverType) {
+    const driver = drivers.find(item => item.type === driverType);
     if (driver && driver.stopLogStream) {
         driver.stopLogStream(deviceId, webContents);
     }
-    logStreamMap.delete(deviceId);
 }
 
 
@@ -442,15 +462,16 @@ async function teardown() {
                 console.error(`[teardown] ${driver.type} killAllLogStreams error:`, e.message || e);
             }
         }
-        // 清理端口转发（HDC 的 removeAllForwards 内部已处理逐个移除）
-        if (driver.removeAllForwards) {
-            await driver.removeAllForwards().catch(e => {
-                console.error(`[teardown] ${driver.type} removeAllForwards error:`, e.message || e);
+    }
+    for (const [key, record] of ownedForwards) {
+        const driver = drivers.find(item => item.type === key.split(':', 1)[0]);
+        if (driver?.removeForward) {
+            await removeOwnedForward(driver, record).catch(e => {
+                console.error(`[teardown] ${driver.type} remove owned forward error:`, e.message || e);
             });
         }
     }
-    // 清空路由映射，防止 Map 泄漏
-    logStreamMap.clear();
+    ownedForwards.clear();
 }
 
 module.exports = {

@@ -1,5 +1,6 @@
 const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const path = require('path');
+const crypto = require('crypto');
 const { startServer, closeServer } = require('./src/server/index.js');
 const { teardown } = require('./src/server/deviceManager.js');
 
@@ -18,6 +19,7 @@ process.on('unhandledRejection', (reason) => {
 
 let mainWindow;
 let localPort;
+const proxyCapability = crypto.randomBytes(32).toString('base64url');
 
 const isDev = !app.isPackaged && process.env.VITE_DEV === 'true';
 
@@ -49,7 +51,7 @@ async function createWindow() {
     mainWindow.setMenu(null);
 
     try {
-        localPort = await startServer();
+        localPort = await startServer({ proxyCapability });
         console.log(`Local backend server started on port ${localPort}`);
 
         if (isDev) {
@@ -98,6 +100,16 @@ app.whenReady().then(() => {
     setupDiagnosticIpc(ipcMain, app);
     setupUpdaterIpc(ipcMain, () => mainWindow);
     setupDeviceIpc(ipcMain);
+    ipcMain.handle('get-ws-proxy-token', (event) => {
+        try {
+            const url = new URL(event.senderFrame?.url || event.sender.getURL());
+            const isProductionRenderer = url.hostname === '127.0.0.1' && String(localPort) === url.port;
+            const isDevelopmentRenderer = isDev && url.hostname === 'localhost' && url.port === '5173';
+            return isProductionRenderer || isDevelopmentRenderer ? proxyCapability : '';
+        } catch {
+            return '';
+        }
+    });
 
     createWindow();
 });

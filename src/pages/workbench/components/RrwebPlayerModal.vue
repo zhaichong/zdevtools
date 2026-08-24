@@ -4,6 +4,7 @@ import 'rrweb-player/dist/style.css';
 import rrwebPlayer from 'rrweb-player';
 
 const props = defineProps({
+    sessionKey: { type: String, default: '' },
     targetId: { type: String, required: true },
     onClose: { type: Function, required: true }
 });
@@ -72,7 +73,8 @@ async function loadReplay() {
             throw new Error('当前环境没有可用的 Electron 回放接口，请在打包后的应用中使用。');
         }
 
-        const chunks = await window.electronAPI.loadRrwebChunks(props.targetId);
+        const key = props.sessionKey || props.targetId;
+        const chunks = await window.electronAPI.loadRrwebChunks(key);
         events.value = latestReplaySession(chunks);
 
         if (events.value.length < 2) {

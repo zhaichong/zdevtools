@@ -9,7 +9,7 @@
                 class="flex-1 min-w-0 mr-4"
                 :targets="targets"
                 :status="status"
-                :active-target-id="activeTargetId"
+                :active-target-key="activeTargetKey"
                 @select-target="handleSelectTarget"
                 @refresh="handleRefresh"
             />
@@ -79,7 +79,7 @@
             <Transition name="fade" mode="out-in">
                 <WorkbenchView
                     v-if="activeTarget"
-                    :key="activeTarget.targetId"
+                    :key="activeTarget.key"
                     :target="activeTarget"
                     @close="closeWorkbench"
                 />
@@ -105,8 +105,8 @@ import { useUpdate } from './composables/useUpdate.js';
 
 const { data, status, diagnostics, devicesTotal, targetsTotal, fetchTargets } = useDevices();
 const activeTarget = ref(null);
-const activeTargetId = ref(null);
-const closedTargetId = ref(null);
+const activeTargetKey = ref(null);
+const closedTargetKey = ref(null);
 
 const {
     updateStatus,
@@ -134,7 +134,7 @@ const targets = computed(() => {
 
 watch(targets, (items) => {
     if (activeTarget.value) {
-        const stillExists = items.some(t => t.targetId === activeTargetId.value);
+        const stillExists = items.some(t => t.key === activeTargetKey.value);
         if (!stillExists) {
             closeWorkbench();
         }
@@ -142,7 +142,7 @@ watch(targets, (items) => {
     }
     
     if (items.length > 0) {
-        const target = items.find(t => t.targetId !== closedTargetId.value);
+        const target = items.find(t => t.key !== closedTargetKey.value);
         if (target) {
             handleSelectTarget(target);
         }
@@ -150,11 +150,30 @@ watch(targets, (items) => {
 }, { immediate: true });
 
 function toTargetInfo(device, proc, target) {
+    let wsDebuggerPath = '';
+    if (target.webSocketDebuggerUrl) {
+        try {
+            const parsed = new URL(target.webSocketDebuggerUrl);
+            const p = parsed.pathname + parsed.search;
+            // 严格白名单校验：仅接受 /devtools/page/ 开头的页面级调试路径，拒绝 /devtools/browser 等提权端点
+            if (/^\/devtools\/page\/[A-Za-z0-9_.:\-@%]+(?:\?[A-Za-z0-9_.:\-@%&=~+#]*)?$/i.test(p)) {
+                wsDebuggerPath = p;
+            }
+        } catch (e) {}
+    }
+    const driverType = device.driver || '';
+    const deviceId = device.id || target.deviceId || '';
+    const port = proc.localPort;
+    const targetId = target.id;
+    const key = `${driverType}:${deviceId}:${port}:${targetId}`;
+
     return {
-        port: proc.localPort,
-        targetId: target.id,
-        deviceId: device.id || target.deviceId || '',
-        driverType: device.driver || '',
+        key, // 稳定唯一的复合主键，防止同 targetId 串会话
+        port,
+        targetId,
+        wsDebuggerPath: wsDebuggerPath || `/devtools/page/${targetId}`,
+        deviceId,
+        driverType,
         title: target.title || '',
         url: target.url || '',
         model: device.model || '',
@@ -163,20 +182,20 @@ function toTargetInfo(device, proc, target) {
 }
 
 function handleSelectTarget(targetInfo) {
-    closedTargetId.value = null;
+    closedTargetKey.value = null;
     activeTarget.value = targetInfo;
-    activeTargetId.value = targetInfo.targetId;
+    activeTargetKey.value = targetInfo.key;
 }
 
 function handleRefresh() {
-    closedTargetId.value = null;
+    closedTargetKey.value = null;
     fetchTargets();
 }
 
 function closeWorkbench() {
-    closedTargetId.value = activeTargetId.value;
+    closedTargetKey.value = activeTargetKey.value;
     activeTarget.value = null;
-    activeTargetId.value = null;
+    activeTargetKey.value = null;
 }
 </script>
 

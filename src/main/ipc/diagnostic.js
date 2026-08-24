@@ -2,11 +2,55 @@ const path = require('path');
 const fsp = require('fs/promises');
 const crypto = require('crypto');
 const { safeFilePart, safeJsonLines } = require('../utils.js');
+const { redact } = require('../../shared/utils/redact-rules.cjs');
 
 const DIAGNOSTIC_MAX_EVENTS_PER_APPEND = 5000;  // 鍗曟 append 鏈€澶?5000 鏉′簨浠?
 const DIAGNOSTIC_MAX_FILE_BYTES = 50 * 1024 * 1024;  // JSONL 鏂囦欢鏈€澶?50MB
+const SENSITIVE_FIELD_RE = /(?:access_)?token|password|client_secret|api_?key|secret|private_?key|authorization|cookie|session|patient|login/i;
+
+function sanitizeDiagnosticValue(value, key = '') {
+    if (SENSITIVE_FIELD_RE.test(key)) return '[REDACTED]';
+    if (typeof value === 'string') return redact(value);
+    if (Array.isArray(value)) return value.map(item => sanitizeDiagnosticValue(item));
+    if (!value || typeof value !== 'object') return value;
+
+    return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [
+        childKey,
+        sanitizeDiagnosticValue(childValue, childKey)
+    ]));
+}
+
+function sanitizeDiagnosticPayload(payload = {}) {
+    const report = sanitizeDiagnosticValue(payload.report || {});
+    if (report.snapshot?.storage) {
+        const storage = payload.report?.snapshot?.storage || {};
+        report.snapshot.storage = {
+            localKeys: Object.keys(storage.local || {}),
+            sessionKeys: Object.keys(storage.session || {})
+        };
+    }
+    return {
+        events: sanitizeDiagnosticValue(Array.isArray(payload.events) ? payload.events : []),
+        report
+    };
+}
+
+function createRunWriteQueue() {
+    const tails = new Map();
+    return (runId, work) => {
+        const previous = tails.get(runId) || Promise.resolve();
+        const task = previous.catch(() => {}).then(work);
+        tails.set(runId, task);
+        task.then(
+            () => { if (tails.get(runId) === task) tails.delete(runId); },
+            () => { if (tails.get(runId) === task) tails.delete(runId); }
+        );
+        return task;
+    };
+}
 
 function setupDiagnosticIpc(ipcMain, app) {
+    const enqueueRunWrite = createRunWriteQueue();
     async function cleanupOldRuns() {
         try {
             const dir = diagnosticDir();
@@ -58,28 +102,30 @@ function setupDiagnosticIpc(ipcMain, app) {
 
     async function readDiagnosticRun(runId) {
         if (!runId) return null;
-        const paths = diagnosticPaths(runId);
-        const metaText = await fsp.readFile(paths.meta, 'utf8').catch(error => {
-            if (error.code === 'ENOENT') return '';
-            throw error;
+        return enqueueRunWrite(runId, async () => {
+            const paths = diagnosticPaths(runId);
+            const metaText = await fsp.readFile(paths.meta, 'utf8').catch(error => {
+                if (error.code === 'ENOENT') return '';
+                throw error;
+            });
+            if (!metaText) return null;
+            const eventText = await fsp.readFile(paths.events, 'utf8').catch(error => {
+                if (error.code === 'ENOENT') return '';
+                throw error;
+            });
+            const reportText = await fsp.readFile(paths.report, 'utf8').catch(error => {
+                if (error.code === 'ENOENT') return '';
+                throw error;
+            });
+            let meta, report;
+            try { meta = JSON.parse(metaText); } catch (e) { meta = null; }
+            try { report = reportText ? JSON.parse(reportText) : null; } catch (e) { report = null; }
+            return {
+                ...(meta || { id: runId, error: 'Corrupted meta file' }),
+                events: safeJsonLines(eventText),
+                report
+            };
         });
-        if (!metaText) return null;
-        const eventText = await fsp.readFile(paths.events, 'utf8').catch(error => {
-            if (error.code === 'ENOENT') return '';
-            throw error;
-        });
-        const reportText = await fsp.readFile(paths.report, 'utf8').catch(error => {
-            if (error.code === 'ENOENT') return '';
-            throw error;
-        });
-        let meta, report;
-        try { meta = JSON.parse(metaText); } catch (e) { meta = null; }
-        try { report = reportText ? JSON.parse(reportText) : null; } catch (e) { report = null; }
-        return {
-            ...(meta || { id: runId, error: 'Corrupted meta file' }),
-            events: safeJsonLines(eventText),
-            report
-        };
     }
 
     ipcMain.handle('diagnostic:createRun', async (event, meta = {}) => {
@@ -88,8 +134,8 @@ function setupDiagnosticIpc(ipcMain, app) {
         const payload = {
             id: runId,
             createdAt: new Date().toISOString(),
-            target: meta.target || null,
-            profile: meta.profile || null
+            target: sanitizeDiagnosticValue(meta.target || null),
+            profile: sanitizeDiagnosticValue(meta.profile || null)
         };
         await fsp.mkdir(path.dirname(paths.meta), { recursive: true });
         await fsp.writeFile(paths.meta, JSON.stringify(payload, null, 2), 'utf8');
@@ -100,29 +146,33 @@ function setupDiagnosticIpc(ipcMain, app) {
     ipcMain.handle('diagnostic:appendEvidence', async (event, runId, payload = {}) => {
         if (!runId) return { ok: false, error: 'runId is required' };
         const paths = diagnosticPaths(runId);
-        await fsp.mkdir(path.dirname(paths.meta), { recursive: true });
-        const events = Array.isArray(payload.events) ? payload.events : [];
+        const sanitized = sanitizeDiagnosticPayload(payload);
+        const events = sanitized.events;
         
         // 闄愬埗鍗曟 append 鐨勪簨浠舵暟閲?
         if (events.length > DIAGNOSTIC_MAX_EVENTS_PER_APPEND) {
             return { ok: false, error: `Too many events (max ${DIAGNOSTIC_MAX_EVENTS_PER_APPEND} per append)` };
         }
         
-        if (events.length) {
-            // 妫€鏌ユ枃浠跺ぇ灏忎笂闄?
-            const currentSize = await fsp.stat(paths.events).then(stat => stat.size).catch(() => 0);
-            const newContent = events.map(item => JSON.stringify(item)).join('\n') + '\n';
-            const newSize = Buffer.byteLength(newContent, 'utf8');
-            if (currentSize + newSize > DIAGNOSTIC_MAX_FILE_BYTES) {
-                return { ok: false, error: `Diagnostic file would exceed ${DIAGNOSTIC_MAX_FILE_BYTES} bytes limit` };
+        return enqueueRunWrite(runId, async () => {
+            await fsp.mkdir(path.dirname(paths.meta), { recursive: true });
+            if (events.length) {
+                // This check and the append must share the same per-run queue.
+                const currentSize = await fsp.stat(paths.events).then(stat => stat.size).catch(() => 0);
+                const newContent = events.map(item => JSON.stringify(item)).join('\n') + '\n';
+                const newSize = Buffer.byteLength(newContent, 'utf8');
+                if (currentSize + newSize > DIAGNOSTIC_MAX_FILE_BYTES) {
+                    return { ok: false, error: `Diagnostic file would exceed ${DIAGNOSTIC_MAX_FILE_BYTES} bytes limit` };
+                }
+                await fsp.appendFile(paths.events, newContent, 'utf8');
             }
-            await fsp.appendFile(paths.events, newContent, 'utf8');
-        }
-        if (payload.report) {
-            await fsp.writeFile(paths.report, JSON.stringify(payload.report, null, 2), 'utf8');
-        }
-        return { ok: true, appended: events.length };
-        return { ok: true, appended: events.length };
+            if (payload.report) {
+                const temporaryReport = `${paths.report}.${crypto.randomBytes(6).toString('hex')}.tmp`;
+                await fsp.writeFile(temporaryReport, JSON.stringify(sanitized.report, null, 2), 'utf8');
+                await fsp.rename(temporaryReport, paths.report);
+            }
+            return { ok: true, appended: events.length };
+        });
     });
 
     ipcMain.handle('diagnostic:getRun', async (event, runId) => {
@@ -137,4 +187,4 @@ function setupDiagnosticIpc(ipcMain, app) {
     cleanupOldRuns();
 }
 
-module.exports = { setupDiagnosticIpc };
+module.exports = { setupDiagnosticIpc, sanitizeDiagnosticPayload, sanitizeDiagnosticValue, createRunWriteQueue };

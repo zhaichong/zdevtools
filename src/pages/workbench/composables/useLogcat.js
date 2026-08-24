@@ -247,11 +247,11 @@ export function useLogcat() {
         });
     }
 
-    function stopStream(deviceId) {
+    function stopStream(deviceId, driverType) {
         if (cleanupData) { cleanupData(); cleanupData = null; }
         if (cleanupError) { cleanupError(); cleanupError = null; }
         if (deviceId) {
-            window.electronAPI?.stopLogcat?.(deviceId);
+            window.electronAPI?.stopLogcat?.(deviceId, driverType);
         }
     }
 

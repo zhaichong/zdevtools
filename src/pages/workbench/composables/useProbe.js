@@ -13,40 +13,80 @@ export function useProbe(cdpClient) {
 
     async function injectProbe() {
         // Inject rrweb first via chunking to bypass 256KB CDP limit on some Android WebViews
-        await evaluate(`window.__rrweb_code = '';`);
-        const chunkSize = 100000;
-        for (let i = 0; i < rrwebScript.length; i += chunkSize) {
-            const chunk = rrwebScript.slice(i, i + chunkSize);
-            await evaluate(`window.__rrweb_code += ${JSON.stringify(chunk)};`);
-        }
-        await evaluate(`
-            if (!window.rrweb) {
-                const s = document.createElement('script');
-                s.textContent = window.__rrweb_code;
-                document.head.appendChild(s);
+        try {
+            await evaluate(`window.__rrweb_code = '';`);
+            const chunkSize = 100000;
+            for (let i = 0; i < rrwebScript.length; i += chunkSize) {
+                const chunk = rrwebScript.slice(i, i + chunkSize);
+                await evaluate(`window.__rrweb_code += ${JSON.stringify(chunk)};`);
             }
-            delete window.__rrweb_code;
-        `);
+            await evaluate(`
+                try {
+                    if (!window.rrweb) {
+                        const s = document.createElement('script');
+                        s.textContent = window.__rrweb_code;
+                        const container = document.head || document.documentElement || document.body;
+                        if (container) container.appendChild(s);
+                    }
+                } catch (e) {
+                    console.warn('rrweb script injection error:', e);
+                } finally {
+                    delete window.__rrweb_code;
+                }
+            `);
+        } catch (e) {
+            console.warn('[probe] rrweb injection warning:', e.message);
+        }
 
         // Then inject our probe
-        const installerStr = probeInstaller.toString().replace(/const redact = [^;]+;/, buildRedactSource());
-        await evaluate(`(${installerStr})(${JSON.stringify(BRIDGE_METHODS)})`);
-        // Start rrweb recording
-        await evaluate(`
-            if (window.rrweb) {
-                if (window.__rrweb_stop__) window.__rrweb_stop__();
-                window.__rrweb_stop__ = window.rrweb.record({
-                    inlineImages: true,
-                    recordCanvas: true,
-                    collectFonts: true,
-                    sampling: { canvas: 2 },
-                    emit(event) {
-                        if (window.__rrweb_emit) window.__rrweb_emit(JSON.stringify(event));
+        try {
+            const installerStr = probeInstaller.toString().replace(/const redact = [^;]+;/, buildRedactSource());
+            await evaluate(`(${installerStr})(${JSON.stringify(BRIDGE_METHODS)})`);
+        } catch (e) {
+            console.warn('[probe] probe installer injection warning:', e.message);
+        }
+
+        // Start rrweb recording if supported
+        try {
+            await evaluate(`
+                try {
+                    if (window.rrweb && typeof window.__rrweb_emit === 'function') {
+                        if (window.__rrweb_stop__) window.__rrweb_stop__();
+                        window.__rrweb_stop__ = window.rrweb.record({
+                            inlineImages: false,
+                            recordCanvas: false,
+                            collectFonts: false,
+                            sampling: { canvas: 2 },
+                            maskAllInputs: true,
+                            maskInputOptions: {
+                                password: true,
+                                text: true,
+                                email: true,
+                                tel: true,
+                                search: true,
+                                number: true,
+                                url: true
+                            },
+                            // Diagnostic replay retains interaction/layout evidence only. Mask
+                            // every DOM text node so patient names, identifiers, and other
+                            // free-form page content never leave the inspected WebView.
+                            maskTextSelector: '*',
+                            blockSelector: '[data-rr-block], .rr-block, iframe',
+                            emit(event) {
+                                try {
+                                    if (window.__rrweb_emit) window.__rrweb_emit(JSON.stringify(event));
+                                } catch (err) {}
+                            }
+                        });
+                        window.__rrweb_started__ = true;
                     }
-                });
-                window.__rrweb_started__ = true;
-            }
-        `);
+                } catch (e) {
+                    console.warn('rrweb record start warning:', e);
+                }
+            `);
+        } catch (e) {
+            console.warn('[probe] rrweb start recording warning:', e.message);
+        }
     }
 
     async function pollProbe() {
@@ -85,7 +125,15 @@ export function useProbe(cdpClient) {
         reinjectRegistered = false;
     }
 
-    return { injectProbe, pollProbe, setupAutoReinject, dispose };
+    async function cleanupTarget() {
+        try {
+            await evaluate('window.__LOCAL_INSPECT_PROBE__?.dispose?.()');
+        } catch (e) {
+            console.warn('[probe] target cleanup warning:', e.message);
+        }
+    }
+
+    return { injectProbe, pollProbe, setupAutoReinject, dispose, cleanupTarget };
 }
 
 function probeInstaller(bridgeMethods) {
@@ -109,22 +157,52 @@ function probeInstaller(bridgeMethods) {
     };
     window.__LOCAL_INSPECT_PROBE__ = state;
     const originalConsole = { error: console.error, warn: console.warn };
-    console.error = function (...args) { state.addError({ type: /Vue warn/i.test(args.join(' ')) ? 'vue' : 'js', source: 'probe-console', severity: 'error', message: redact(args.map(safeText).join(' ')) }); return originalConsole.error.apply(this, args); };
-    console.warn = function (...args) { state.add({ type: 'console', message: redact(args.map(safeText).join(' ')), data: { level: 'warn' } }); return originalConsole.warn.apply(this, args); };
+    const probeConsoleError = function (...args) { state.addError({ type: /Vue warn/i.test(args.join(' ')) ? 'vue' : 'js', source: 'probe-console', severity: 'error', message: redact(args.map(safeText).join(' ')) }); return originalConsole.error.apply(this, args); };
+    const probeConsoleWarn = function (...args) { state.add({ type: 'console', message: redact(args.map(safeText).join(' ')), data: { level: 'warn' } }); return originalConsole.warn.apply(this, args); };
+    console.error = probeConsoleError;
+    console.warn = probeConsoleWarn;
     const previousOnError = window.onerror;
-    window.onerror = function (message, source, lineno, colno, error) { state.addError({ type: 'js', source: 'window.onerror', severity: 'error', message: redact(safeText(error || message)), url: source, lineNumber: lineno, columnNumber: colno, stack: error?.stack }); if (typeof previousOnError === 'function') return previousOnError.apply(this, arguments); return false; };
+    const probeOnError = function (message, source, lineno, colno, error) { state.addError({ type: 'js', source: 'window.onerror', severity: 'error', message: redact(safeText(error || message)), url: source, lineNumber: lineno, columnNumber: colno, stack: error?.stack }); if (typeof previousOnError === 'function') return previousOnError.apply(this, arguments); return false; };
+    window.onerror = probeOnError;
     const previousUnhandled = window.onunhandledrejection;
-    window.onunhandledrejection = function (event) { state.addError({ type: 'js', source: 'unhandledrejection', severity: 'error', message: redact(safeText(event.reason)), stack: event.reason?.stack }); if (typeof previousUnhandled === 'function') return previousUnhandled.apply(this, arguments); };
+    const probeUnhandled = function (event) { state.addError({ type: 'js', source: 'unhandledrejection', severity: 'error', message: redact(safeText(event.reason)), stack: event.reason?.stack }); if (typeof previousUnhandled === 'function') return previousUnhandled.apply(this, arguments); };
+    window.onunhandledrejection = probeUnhandled;
     const originalFetch = window.fetch;
-    if (typeof originalFetch === 'function') { window.fetch = async function (input, init = {}) { const start = now(); const url = typeof input === 'string' ? input : input?.url; const method = (init.method || input?.method || 'GET').toUpperCase(); try { const response = await originalFetch.apply(this, arguments); if (!response.ok) state.addNetwork({ source: 'fetch', method, url: redact(url), status: response.status, statusText: response.statusText, duration: now() - start }); return response; } catch (error) { state.addNetwork({ source: 'fetch', method, url: redact(url), error: safeText(error), duration: now() - start }); throw error; } }; }
+    const probeFetch = async function (input, init = {}) { const start = now(); const url = typeof input === 'string' ? input : input?.url; const method = (init.method || input?.method || 'GET').toUpperCase(); try { const response = await originalFetch.apply(this, arguments); if (!response.ok) state.addNetwork({ source: 'fetch', method, url: redact(url), status: response.status, statusText: response.statusText, duration: now() - start }); return response; } catch (error) { state.addNetwork({ source: 'fetch', method, url: redact(url), error: safeText(error), duration: now() - start }); throw error; } };
+    if (typeof originalFetch === 'function') window.fetch = probeFetch;
     const OriginalXHR = window.XMLHttpRequest;
-    if (OriginalXHR) { window.XMLHttpRequest = function () { const xhr = new OriginalXHR(); let method = 'GET'; let url = ''; let start = 0; const originalOpen = xhr.open; const originalSend = xhr.send; xhr.open = function (m, u) { method = String(m || 'GET').toUpperCase(); url = String(u || ''); return originalOpen.apply(xhr, arguments); }; xhr.send = function () { start = now(); xhr.addEventListener('loadend', () => { if (xhr.status >= 400 || xhr.status === 0) state.addNetwork({ source: 'xhr', method, url: redact(url), status: xhr.status, statusText: xhr.statusText, duration: now() - start }); }); return originalSend.apply(xhr, arguments); }; return xhr; }; }
+    const ProbeXHR = function () { const xhr = new OriginalXHR(); let method = 'GET'; let url = ''; let start = 0; const originalOpen = xhr.open; const originalSend = xhr.send; xhr.open = function (m, u) { method = String(m || 'GET').toUpperCase(); url = String(u || ''); return originalOpen.apply(xhr, arguments); }; xhr.send = function () { start = now(); xhr.addEventListener('loadend', () => { if (xhr.status >= 400 || xhr.status === 0) state.addNetwork({ source: 'xhr', method, url: redact(url), status: xhr.status, statusText: xhr.statusText, duration: now() - start }); }); return originalSend.apply(xhr, arguments); }; return xhr; };
+    if (OriginalXHR) window.XMLHttpRequest = ProbeXHR;
     const push = history.pushState; const replace = history.replaceState;
-    history.pushState = function () { const ret = push.apply(this, arguments); state.add({ type: 'route', message: location.href, data: { mode: 'pushState' } }); return ret; };
-    history.replaceState = function () { const ret = replace.apply(this, arguments); state.add({ type: 'route', message: location.href, data: { mode: 'replaceState' } }); return ret; };
-    window.addEventListener('hashchange', () => state.add({ type: 'route', message: location.href, data: { mode: 'hashchange' } }), true);
-    window.addEventListener('popstate', () => state.add({ type: 'route', message: location.href, data: { mode: 'popstate' } }), true);
-    document.addEventListener('click', event => { const el = event.target?.closest?.('button,a,[role="button"],input,select,textarea,[class]'); if (!el) return; const label = (el.innerText || el.value || el.getAttribute('aria-label') || el.className || el.tagName || '').toString().trim().slice(0, 120); state.add({ type: 'click', message: label || el.tagName, data: { tag: el.tagName, id: el.id || '', className: String(el.className || '').slice(0, 120) } }); }, true);
-    try { const Vue = window.Vue || document.querySelector('#app')?.__vue__?.constructor; if (Vue?.config && !Vue.config.__LOCAL_INSPECT_WRAPPED__) { const originalHandler = Vue.config.errorHandler; Vue.config.errorHandler = function (err, vm, info) { state.addError({ type: 'vue', source: 'Vue.config.errorHandler', severity: 'error', message: redact(safeText(err)), info, componentName: vm?.$options?.name || vm?.$options?._componentTag || '', route: location.href, stack: err?.stack }); if (typeof originalHandler === 'function') return originalHandler.apply(this, arguments); }; Vue.config.__LOCAL_INSPECT_WRAPPED__ = true; } } catch (e) {}
+    const probePushState = function () { const ret = push.apply(this, arguments); state.add({ type: 'route', message: location.href, data: { mode: 'pushState' } }); return ret; };
+    const probeReplaceState = function () { const ret = replace.apply(this, arguments); state.add({ type: 'route', message: location.href, data: { mode: 'replaceState' } }); return ret; };
+    history.pushState = probePushState;
+    history.replaceState = probeReplaceState;
+    const onHashChange = () => state.add({ type: 'route', message: location.href, data: { mode: 'hashchange' } });
+    const onPopState = () => state.add({ type: 'route', message: location.href, data: { mode: 'popstate' } });
+    const onClick = event => { const el = event.target?.closest?.('button,a,[role="button"],input,select,textarea,[class]'); if (!el) return; const label = (el.innerText || el.value || el.getAttribute('aria-label') || el.className || el.tagName || '').toString().trim().slice(0, 120); state.add({ type: 'click', message: label || el.tagName, data: { tag: el.tagName, id: el.id || '', className: String(el.className || '').slice(0, 120) } }); };
+    window.addEventListener('hashchange', onHashChange, true);
+    window.addEventListener('popstate', onPopState, true);
+    document.addEventListener('click', onClick, true);
+    let vueConfig = null; let originalVueErrorHandler = null; let probeVueErrorHandler = null;
+    try { const Vue = window.Vue || document.querySelector('#app')?.__vue__?.constructor; if (Vue?.config && !Vue.config.__LOCAL_INSPECT_WRAPPED__) { vueConfig = Vue.config; originalVueErrorHandler = vueConfig.errorHandler; probeVueErrorHandler = function (err, vm, info) { state.addError({ type: 'vue', source: 'Vue.config.errorHandler', severity: 'error', message: redact(safeText(err)), info, componentName: vm?.$options?.name || vm?.$options?._componentTag || '', route: location.href, stack: err?.stack }); if (typeof originalVueErrorHandler === 'function') return originalVueErrorHandler.apply(this, arguments); }; vueConfig.errorHandler = probeVueErrorHandler; vueConfig.__LOCAL_INSPECT_WRAPPED__ = true; } } catch (e) {}
+    state.dispose = () => {
+        try { if (window.__rrweb_stop__) window.__rrweb_stop__(); } catch (e) {}
+        delete window.__rrweb_stop__; delete window.__rrweb_started__;
+        if (console.error === probeConsoleError) console.error = originalConsole.error;
+        if (console.warn === probeConsoleWarn) console.warn = originalConsole.warn;
+        if (window.onerror === probeOnError) window.onerror = previousOnError;
+        if (window.onunhandledrejection === probeUnhandled) window.onunhandledrejection = previousUnhandled;
+        if (window.fetch === probeFetch) window.fetch = originalFetch;
+        if (window.XMLHttpRequest === ProbeXHR) window.XMLHttpRequest = OriginalXHR;
+        if (history.pushState === probePushState) history.pushState = push;
+        if (history.replaceState === probeReplaceState) history.replaceState = replace;
+        window.removeEventListener('hashchange', onHashChange, true);
+        window.removeEventListener('popstate', onPopState, true);
+        document.removeEventListener('click', onClick, true);
+        if (vueConfig?.errorHandler === probeVueErrorHandler) vueConfig.errorHandler = originalVueErrorHandler;
+        if (vueConfig) delete vueConfig.__LOCAL_INSPECT_WRAPPED__;
+        delete window.__LOCAL_INSPECT_PROBE__;
+    };
     state.add({ type: 'probe', message: 'ztools probe installed', data: { bridgeMethods } });
 }

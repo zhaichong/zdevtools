@@ -23,8 +23,11 @@ const emit = defineEmits(['close']);
 
 // Map the target prop to a reactive config object that the rest of the code expects
 const config = reactive({
+    key: props.target.key || `${props.target.driverType || 'adb'}:${props.target.deviceId || '*'}:${props.target.port}:${props.target.targetId}`,
     port: props.target.port,
     targetId: props.target.targetId,
+    wsDebuggerPath: props.target.wsDebuggerPath || `/devtools/page/${props.target.targetId}`,
+    proxyToken: '',
     deviceId: props.target.deviceId || '',
     title: props.target.title || 'Untitled',
     url: props.target.url || '',
@@ -75,13 +78,21 @@ onMounted(async () => {
         setStatus('参数缺失', 'error');
         return;
     }
+    config.proxyToken = await window.electronAPI?.getWsProxyToken?.() || '';
+    if (!config.proxyToken) {
+        setStatus('安全代理初始化失败', 'error');
+        return;
+    }
     await collect({ reconnect: true }, initSelectedCauseId);
 });
 
 const devtoolsUrl = computed(() => {
     if (!hasActivatedDevtools.value) return '';
-    const wsUrl = `${location.host}/ws-proxy/${config.port}/devtools/page/${config.targetId}`;
-    return `/devtools/inspector.html?ws=${wsUrl}&theme=dark`;
+    const cleanPath = (config.wsDebuggerPath || `/devtools/page/${config.targetId}`).replace(/^\//, '');
+    if (!config.proxyToken) return '';
+    const separator = cleanPath.includes('?') ? '&' : '?';
+    const wsUrl = `${location.host}/ws-proxy/${config.port}/${cleanPath}${separator}ztools_token=${encodeURIComponent(config.proxyToken)}`;
+    return `/devtools/inspector.html?ws=${encodeURIComponent(wsUrl)}&theme=dark`;
 });
 
 const causes = computed(() => report.value?.causes || []);
@@ -213,7 +224,7 @@ async function onSourceMapUpload(event) {
                         @clear="logcatManager.clear()"
                         @next-match="logcatManager.nextMatch()"
                         @prev-match="logcatManager.prevMatch()"
-                        @refresh="logcatManager.startStream(config.deviceId)"
+                        @refresh="logcatManager.startStream(config.deviceId, config.driverType)"
                     />
                     <DeviceInfoPanel
                         v-show="activePanel === 'device'"
@@ -251,6 +262,7 @@ async function onSourceMapUpload(event) {
         </div>
         <RrwebPlayerModal 
             v-if="showRrwebModal" 
+            :session-key="config.key"
             :target-id="config.targetId" 
             :on-close="() => showRrwebModal = false" 
         />
