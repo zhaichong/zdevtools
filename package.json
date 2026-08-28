@@ -26,7 +26,8 @@
       "src/shared/**/*",
       "dist/**/*",
       "devtools/**/*",
-      "build/icon.png"
+      "build/icon.png",
+      "build/icon.ico"
     ],
     "asar": true,
     "extraResources": [
@@ -40,13 +41,15 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "build/icon.png"
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "artifactName": "ztools.Setup.${version}.exe",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true
+      "createDesktopShortcut": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
     },
     "publish": [
       {

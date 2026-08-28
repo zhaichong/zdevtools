@@ -39,7 +39,7 @@ async function createWindow() {
         width: 1200,
         height: 800,
         title: 'ztools',
-        icon: path.join(__dirname, 'build/icon.png'),
+        icon: path.join(__dirname, process.platform === 'win32' ? 'build/icon.ico' : 'build/icon.png'),
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
