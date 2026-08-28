@@ -1,7 +1,7 @@
 const { execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-const { withRetry, parseDevtoolsSockets, createLogStreamManager } = require('./baseDriver.js');
+const { withRetry, parseDevtoolsSockets, normalizeAbstractSocket, createLogStreamManager } = require('./baseDriver.js');
 
 const ADB_TIMEOUT_MS = 6000;
 
@@ -45,10 +45,27 @@ function parseDevices(output) {
 }
 
 function parseForwards(output) {
-    return output.split(/\r?\n/).reduce((items, line) => {
-        const match = line.match(/^(\S+)\s+tcp:(\d+)\s+localabstract:(\S+)/);
-        if (match) {
-            items.push({ id: match[1], localPort: Number.parseInt(match[2], 10), socket: match[3] });
+    return (output || '').split(/\r?\n/).reduce((items, line) => {
+        const trimmed = line.trim();
+        const abstractMatch = trimmed.match(/^(\S+)\s+tcp:(\d+)\s+localabstract:(\S+)/);
+        if (abstractMatch) {
+            items.push({
+                id: abstractMatch[1],
+                localPort: Number.parseInt(abstractMatch[2], 10),
+                socket: normalizeAbstractSocket(abstractMatch[3]),
+                kind: 'abstract'
+            });
+            return items;
+        }
+        const tcpMatch = trimmed.match(/^(\S+)\s+tcp:(\d+)\s+tcp:(\d+)/);
+        if (tcpMatch) {
+            items.push({
+                id: tcpMatch[1],
+                localPort: Number.parseInt(tcpMatch[2], 10),
+                remotePort: Number.parseInt(tcpMatch[3], 10),
+                socket: `tcp:${tcpMatch[3]}`,
+                kind: 'tcp'
+            });
         }
         return items;
     }, []);
@@ -57,13 +74,14 @@ function parseForwards(output) {
 // 日志流管理器（共享订阅者模式）
 const logStream = createLogStreamManager({
     getToolPath: getAdbPath,
-    buildArgs: (id) => ['-s', id, 'logcat', '-v', 'time', '-T', '1'],
+    buildArgs: (id) => ['-s', id, 'logcat', '-b', 'main', '-b', 'system', '-b', 'crash', '-v', 'time', '-T', '200'],
     errorLabel: 'Logcat'
 });
 
 module.exports = {
     type: 'adb',
     name: 'Android ADB',
+    parseForwards,
 
     checkAvailability: async () => {
         const result = await runAdbWithRetry(['forward', '--list']);

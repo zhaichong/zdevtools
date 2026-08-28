@@ -102,6 +102,7 @@ import WelcomeScreen from './components/WelcomeScreen.vue';
 import WorkbenchView from './pages/workbench/WorkbenchView.vue';
 import { useDevices } from './composables/useDevices.js';
 import { useUpdate } from './composables/useUpdate.js';
+import { resolvePageDebuggerPath } from './shared/utils/inspect-target.cjs';
 
 const { data, status, diagnostics, devicesTotal, targetsTotal, fetchTargets } = useDevices();
 const activeTarget = ref(null);
@@ -125,7 +126,8 @@ const targets = computed(() => {
     for (const device of data.value?.devices || []) {
         for (const proc of device.processes || []) {
             for (const target of proc.targets || []) {
-                items.push(toTargetInfo(device, proc, target));
+                const info = toTargetInfo(device, proc, target);
+                if (info.wsDebuggerPath) items.push(info);
             }
         }
     }
@@ -150,28 +152,22 @@ watch(targets, (items) => {
 }, { immediate: true });
 
 function toTargetInfo(device, proc, target) {
-    let wsDebuggerPath = '';
-    if (target.webSocketDebuggerUrl) {
-        try {
-            const parsed = new URL(target.webSocketDebuggerUrl);
-            const p = parsed.pathname + parsed.search;
-            // 严格白名单校验：仅接受 /devtools/page/ 开头的页面级调试路径，拒绝 /devtools/browser 等提权端点
-            if (/^\/devtools\/page\/[A-Za-z0-9_.:\-@%]+(?:\?[A-Za-z0-9_.:\-@%&=~+#]*)?$/i.test(p)) {
-                wsDebuggerPath = p;
-            }
-        } catch (e) {}
-    }
+    const targetId = target.id;
+    const wsDebuggerPath = resolvePageDebuggerPath({
+        wsDebuggerPath: target.wsDebuggerPath,
+        webSocketDebuggerUrl: target.webSocketDebuggerUrl,
+        targetId
+    });
     const driverType = device.driver || '';
     const deviceId = device.id || target.deviceId || '';
     const port = proc.localPort;
-    const targetId = target.id;
     const key = `${driverType}:${deviceId}:${port}:${targetId}`;
 
     return {
         key, // 稳定唯一的复合主键，防止同 targetId 串会话
         port,
         targetId,
-        wsDebuggerPath: wsDebuggerPath || `/devtools/page/${targetId}`,
+        wsDebuggerPath,
         deviceId,
         driverType,
         title: target.title || '',

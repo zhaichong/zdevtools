@@ -50,11 +50,20 @@ export function useSourceMap() {
     }
 
     function findMapForFile(file) {
-        const candidates = [file, `${file}.map`, file.replace(/\.js$/, '.js.map')].map(normalizeMapKey);
+        if (!file) return null;
+        const cleanFile = file.split('?')[0].split('#')[0];
+        const candidates = [
+            cleanFile,
+            `${cleanFile}.map`,
+            cleanFile.replace(/\.js$/, '.js.map')
+        ].map(c => normalizeMapKey(c));
+
         for (const [key, value] of sourceMaps.entries()) {
             if (candidates.includes(key)
-                || key.endsWith(`/${file}.map`)
-                || key.endsWith(`/${file.replace(/\.js$/, '.js.map')}`)) {
+                || key === cleanFile
+                || key === `${cleanFile}.map`
+                || key.endsWith(`/${cleanFile}.map`)
+                || key.endsWith(`/${cleanFile.replace(/\.js$/, '.js.map')}`)) {
                 return value;
             }
         }
@@ -63,17 +72,33 @@ export function useSourceMap() {
 
     function resolveSource(stack) {
         if (!stack?.length) return { mode: 'anonymous', reason: '没有可用于映射的调用栈' };
+        let firstBundleFallback = null;
+
         for (const frame of stack) {
             const file = fileNameFromUrl(frame.url || frame.source || '');
             const line = Number(frame.lineNumber);
             const column = Number(frame.columnNumber);
             if (!file || !Number.isFinite(line) || !Number.isFinite(column)) continue;
+
             const mapEntry = findMapForFile(file);
-            if (!mapEntry) return { mode: 'bundle', file, line, column, reason: `缺少 ${file}.map 或对应 SourceMap` };
+            if (!mapEntry) {
+                if (!firstBundleFallback) {
+                    firstBundleFallback = { mode: 'bundle', file, line, column, reason: `缺少 ${file}.map 或对应 SourceMap` };
+                }
+                continue;
+            }
+
             const original = originalPositionFor(mapEntry, line, column);
-            if (original) return { mode: 'source-map', file, line, column, ...original };
-            return { mode: 'bundle', file, line, column, reason: 'SourceMap 存在，但没有匹配到该行列' };
+            if (original) {
+                return { mode: 'source-map', file, line, column, ...original };
+            }
+
+            if (!firstBundleFallback) {
+                firstBundleFallback = { mode: 'bundle', file, line, column, reason: 'SourceMap 存在，但没有匹配到该行列' };
+            }
         }
+
+        if (firstBundleFallback) return firstBundleFallback;
         return { mode: 'anonymous', reason: '调用栈没有 bundle 文件和行列号' };
     }
 

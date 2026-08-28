@@ -3,6 +3,7 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const assert = require('assert');
 const { sanitizeDiagnosticPayload, sanitizeDiagnosticValue, createRunWriteQueue } = require('../src/main/ipc/diagnostic.js');
+const { sanitizeLogChunk } = require('../src/server/drivers/baseDriver.js');
 
 const payload = sanitizeDiagnosticPayload({
     events: [{
@@ -31,6 +32,8 @@ assert.equal(
     sanitizeDiagnosticValue({ url: 'https://example.test/?access_token=top-secret-token' }).url.includes('top-secret-token'),
     false
 );
+assert.equal(sanitizeDiagnosticValue({ auth: 'super-secret-value' }).auth, '[REDACTED]');
+assert.equal(sanitizeDiagnosticValue({ author: 'alice' }).author, 'alice');
 
 const queue = createRunWriteQueue();
 const writes = [];
@@ -39,5 +42,8 @@ await Promise.all([
     queue('same-run', async () => { writes.push('second'); })
 ]);
 assert.deepStrictEqual(writes, ['first', 'second'], 'writes for one diagnostic run must be serialized');
+
+assert.ok(!sanitizeLogChunk('E/WebView: auth=super-secret-value keep=ok').includes('super-secret-value'));
+assert.match(sanitizeLogChunk('E/WebView: auth=super-secret-value keep=ok'), /keep=ok/);
 
 console.log('diagnostic persistence tests passed');

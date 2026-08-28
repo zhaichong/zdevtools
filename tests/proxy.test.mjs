@@ -53,5 +53,18 @@ assert.deepStrictEqual(
 assert.strictEqual(extractAuthorizedProxyRequest('/ws-proxy/9222/devtools/page/abc', 'capability'), null);
 assert.strictEqual(extractAuthorizedProxyRequest('/ws-proxy/9222/devtools/page/abc?ztools_token=wrong', 'capability'), null);
 assert.strictEqual(extractAuthorizedProxyRequest('/ws-proxy/9222/devtools/browser/abc?ztools_token=capability', 'capability'), null);
+assert.deepStrictEqual(
+    extractAuthorizedProxyRequest('/ws-proxy/9222/devtools/page/2?ztools_token=capability', 'capability'),
+    { port: '9222', path: '/devtools/page/2' }
+);
+assert.strictEqual(
+    extractAuthorizedProxyRequest('/ws-proxy/9219/devtools/page/2?ztools_token=capability', 'capability'),
+    null
+);
+
+assert.strictEqual(isAllowedProxyTarget(9222, '/devtools/page/%2e%2e%2fbrowser'), false);
+assert.strictEqual(isAllowedProxyTarget(9222, '/devtools/page/foo%2f..%2fbrowser'), false);
+assert.strictEqual(extractAuthorizedProxyRequest('/ws-proxy/9222/devtools/page/%2e%2e%2fbrowser?ztools_token=capability', 'capability'), null);
+assert.strictEqual(isAllowedProxyTarget(9222, '/devtools/page/0%3A1'), true);
 
 console.log('proxy tests passed');

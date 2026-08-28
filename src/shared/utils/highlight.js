@@ -2,37 +2,40 @@ import { escapeHtml } from './escape.js';
 
 /**
  * 在文本中高亮搜索关键词，返回安全的 HTML 字符串
- * 大小写不敏感匹配，未匹配部分经过 HTML 转义
+ * 大小写不敏感匹配，匹配与未匹配部分均经过 HTML 转义
  * @param {string} text - 原始文本
  * @param {string} query - 搜索关键词
  * @returns {string} 安全的 HTML 字符串，匹配部分用 <mark class="hl"> 包裹
  */
 export function highlightText(text, query) {
-    if (!query || !text) return escapeHtml(text);
+    if (!text) return '';
+    const rawText = String(text);
+    if (!query) return escapeHtml(rawText);
 
-    const escaped = escapeHtml(text);
-    const escapedQuery = escapeHtml(query);
-    if (!escapedQuery) return escaped;
+    const rawQuery = String(query);
+    if (!rawQuery) return escapeHtml(rawText);
 
-    const escapedLower = escaped.toLowerCase();
-    const queryLower = escapedQuery.toLowerCase();
+    const textLower = rawText.toLowerCase();
+    const queryLower = rawQuery.toLowerCase();
+    const queryLen = rawQuery.length;
 
     let result = '';
     let cursor = 0;
-    let idx = escapedLower.indexOf(queryLower, cursor);
+    let idx = textLower.indexOf(queryLower, cursor);
 
     while (idx !== -1) {
-        // 匹配前的部分
-        result += escaped.slice(cursor, idx);
-        // 匹配部分 — 用 mark 包裹，保留原始大小写
+        if (idx > cursor) {
+            result += escapeHtml(rawText.slice(cursor, idx));
+        }
         result += '<mark class="hl">';
-        result += escaped.slice(idx, idx + escapedQuery.length);
+        result += escapeHtml(rawText.slice(idx, idx + queryLen));
         result += '</mark>';
-        cursor = idx + escapedQuery.length;
-        idx = escapedLower.indexOf(queryLower, cursor);
+        cursor = idx + queryLen;
+        idx = textLower.indexOf(queryLower, cursor);
     }
 
-    // 剩余部分
-    result += escaped.slice(cursor);
+    if (cursor < rawText.length) {
+        result += escapeHtml(rawText.slice(cursor));
+    }
     return result;
 }

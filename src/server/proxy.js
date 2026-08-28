@@ -1,17 +1,14 @@
 const { createProxyServer } = require('http-proxy');
 const crypto = require('crypto');
 const { FORWARD_PORT_MIN, FORWARD_PORT_MAX } = require('./constants.js');
+const { canonicalizePageDebuggerPath } = require('../shared/utils/inspect-target.cjs');
 
 function isAllowedProxyTarget(port, path) {
     const n = Number(port);
     if (!Number.isInteger(n) || n < FORWARD_PORT_MIN || n > FORWARD_PORT_MAX) {
         return false;
     }
-    if (typeof path !== 'string') {
-        return false;
-    }
-    // 严格限制为单页面级调试路径 /devtools/page/<targetId>，严格禁止 /devtools/browser 等高权限越权端点
-    return /^\/devtools\/page\/[A-Za-z0-9_.:\-@%]+(?:\?[A-Za-z0-9_.:\-@%&=~+#]*)?$/i.test(path);
+    return canonicalizePageDebuggerPath(path) !== '';
 }
 
 function hasValidCapability(provided, expected) {
@@ -33,7 +30,9 @@ function extractAuthorizedProxyRequest(rawUrl, capability) {
     if (!match || !hasValidCapability(url.searchParams.get('ztools_token'), capability)) return null;
 
     url.searchParams.delete('ztools_token');
-    const target = { port: match[1], path: match[2] + url.search };
+    const path = canonicalizePageDebuggerPath(match[2] + url.search);
+    if (!path) return null;
+    const target = { port: match[1], path };
     return isAllowedProxyTarget(target.port, target.path) ? target : null;
 }
 

@@ -64,6 +64,17 @@ test('handles null/undefined without throwing', () => {
     assert.strictEqual(redact(''), '');
 });
 
+test('redacts auth key-value secrets (not only Authorization)', () => {
+    assert.strictEqual(redact('auth=super-secret-value&keep=1'), 'auth=[REDACTED]&keep=1');
+    assert.strictEqual(redact('auth: super-secret-value'), 'auth: [REDACTED]');
+    assert.match(redact('{"auth":"super-secret-value"}'), /\[REDACTED\]/);
+    assert.ok(!redact('{"auth":"super-secret-value"}').includes('super-secret-value'));
+});
+
+test('does not treat author as an auth secret', () => {
+    assert.strictEqual(redact('author=alice'), 'author=alice');
+});
+
 test('preserves non-sensitive text', () => {
     const result = redact('Hello, normal text with no secrets');
     assert.strictEqual(result, 'Hello, normal text with no secrets');

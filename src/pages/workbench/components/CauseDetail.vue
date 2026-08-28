@@ -6,8 +6,11 @@ import { formatTime } from '@/shared/utils/format.js';
 
 const props = defineProps({
     cause: { type: Object, default: null },
+    repairState: { type: Object, default: null },
     onEvaluate: { type: Function, default: null }
 });
+
+const emit = defineEmits(['start-repair', 'verify-repair']);
 
 const checks = ref([]);
 
@@ -19,10 +22,32 @@ const sourceLabel = computed(() => {
 });
 
 const evidence = computed(() => (props.cause?.evidence || []).slice(-4));
-const related = computed(() => (props.cause?.related || []).slice(-8));
+const related = computed(() => props.cause?.related || []);
+const RELATED_TYPE_LABELS = {
+    network: '接口', js: 'JS', vue: 'Vue', resource: '资源',
+    bridge: 'Bridge', route: '路由', click: '点击',
+    console: 'Console', probe: '探针', 'low-signal': '低价值线索'
+};
+function relatedTypeLabel(type) {
+    return RELATED_TYPE_LABELS[type] || type || '事件';
+}
 const confidenceText = computed(() => {
     if (typeof props.cause?.confidence !== 'number') return '-';
     return `${Math.round(props.cause.confidence * 100)}%`;
+});
+const repairStatus = computed(() => ({
+    repairing: '修复中（已建立基线）',
+    verifying: '复验采集中',
+    verified: '已验证：当前观察未复现',
+    failed: '未通过：当前仍可复现'
+}[props.repairState?.status] || '未建立复验基线'));
+
+const repairPanelClass = computed(() => {
+    const status = props.repairState?.status;
+    if (status === 'failed') return 'border-orange-200 bg-orange-50/30';
+    if (status === 'verified') return 'border-emerald-200 bg-emerald-50/30';
+    if (status === 'verifying' || status === 'repairing') return 'border-zinc-200 bg-zinc-50/40';
+    return 'border-emerald-200 bg-emerald-50/30';
 });
 
 const quickChecks = computed(() => {
@@ -105,6 +130,25 @@ function priorityColor(priority) {
             <p class="text-xs text-zinc-600 leading-relaxed whitespace-pre-wrap">{{ redact(cause.next || '暂无建议。') }}</p>
         </section>
 
+        <section class="flex flex-col gap-3 p-5 rounded-xl border" :class="repairPanelClass">
+            <div class="flex items-center justify-between gap-4">
+                <div>
+                    <h3 class="text-xs font-bold text-zinc-800">修复复验</h3>
+                    <p class="text-xs text-zinc-600 mt-1">{{ repairStatus }}</p>
+                </div>
+                <span v-if="repairState?.attempts" class="text-[10px] text-zinc-500">尝试 {{ repairState.attempts }} 次</span>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <button type="button" class="px-3 py-1.5 text-xs font-semibold rounded border border-emerald-300 text-emerald-800 bg-white hover:bg-emerald-50 disabled:opacity-50 disabled:cursor-not-allowed" :disabled="repairState?.status === 'verifying'" @click="emit('start-repair')">
+                    {{ repairState?.baseline ? '重新建立基线' : '建立复验基线' }}
+                </button>
+                <button type="button" class="px-3 py-1.5 text-xs font-semibold rounded border border-zinc-300 text-zinc-700 bg-white hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!repairState?.baseline || repairState?.status === 'verifying'" @click="emit('verify-repair')">
+                    {{ repairState?.status === 'verifying' ? '复验采集中…' : '重新采集并复验' }}
+                </button>
+            </div>
+            <p v-if="repairState?.lastVerification?.status === 'failed'" class="text-xs text-orange-700">基线之后再次观察到同一根因；请继续修复后再次复验。</p>
+        </section>
+
         <!-- Code Context -->
         <section class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <article class="flex flex-col gap-2">
@@ -141,8 +185,9 @@ function priorityColor(priority) {
             </div>
             <div v-else class="flex flex-col gap-2 select-none">
                 <div v-for="(item, index) in related" :key="index" class="flex items-start gap-3 p-3 rounded-lg border border-zinc-150 bg-white shadow-3xs">
+                    <time class="text-[10px] font-mono text-zinc-400 shrink-0 mt-0.5 w-16">{{ formatTime(item.time) }}</time>
                     <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase border border-zinc-200 bg-zinc-50 text-zinc-450 shrink-0 mt-0.5">
-                        {{ item.type || 'event' }}
+                        {{ relatedTypeLabel(item.type) }}
                     </span>
                     <strong class="text-xs text-zinc-700 font-semibold leading-snug break-words">{{ redact(item.message || '-') }}</strong>
                 </div>

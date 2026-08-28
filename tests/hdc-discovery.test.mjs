@@ -73,6 +73,40 @@ const { parseForwards, shouldProbeExistingTcpPort } = require('../src/server/dri
 assert.deepStrictEqual(parseForwards(''), []);
 assert.deepStrictEqual(parseForwards(null), []);
 
+// /proc/net/unix @ prefix copied into hdc fport ls must strip @
+{
+    const items = parseForwards('tcp:9222 localabstract:@webview_devtools_remote_3458');
+    assert.equal(items.length, 1);
+    assert.equal(items[0].kind, 'abstract');
+    assert.equal(items[0].socket, 'webview_devtools_remote_3458');
+}
+
+// Official HarmonyOS DevTools mapping (hdc fport ls after
+// `hdc fport tcp:9222 localabstract:webview_devtools_remote_3458`)
+{
+    const items = parseForwards([
+        'Forwardport list:',
+        '[Empty]',
+        'tcp:9222 localabstract:webview_devtools_remote_3458',
+        "[Forward] 70d2a3e2 tcp:9230 tcp:9222",
+        '70d2a3e2 tcp:9223 localabstract:webview_devtools_remote_43406 [Forward]'
+    ].join('\n'));
+    assert.equal(items.length, 3);
+    assert.deepStrictEqual(items[0], {
+        id: '*',
+        localPort: 9222,
+        socket: 'webview_devtools_remote_3458',
+        kind: 'abstract'
+    });
+    assert.equal(items[1].id, '70d2a3e2');
+    assert.equal(items[1].kind, 'tcp');
+    assert.equal(items[1].localPort, 9230);
+    assert.equal(items[1].remotePort, 9222);
+    assert.equal(items[2].id, '70d2a3e2');
+    assert.equal(items[2].kind, 'abstract');
+    assert.equal(items[2].socket, 'webview_devtools_remote_43406');
+}
+
 // A TCP forward belongs to its HDC device. Unknown external ports are only
 // safe to use in an explicitly single-device context.
 {

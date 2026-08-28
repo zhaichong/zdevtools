@@ -132,14 +132,18 @@ watch(displayEntries, async () => {
             </button>
         </div>
 
+        <div v-if="error && entries.length" class="shrink-0 px-3 py-2 rounded-lg border border-orange-200 bg-orange-50 text-xs text-orange-800">
+            {{ error }}
+        </div>
+
         <!-- Content Area -->
-        <div v-if="loading" class="flex-1 grid place-items-center rounded-lg border border-zinc-200 bg-white text-zinc-500 text-sm">
+        <div v-if="loading && !entries.length" class="flex-1 grid place-items-center rounded-lg border border-zinc-200 bg-white text-zinc-500 text-sm">
             <div class="flex items-center gap-2">
                 <svg class="animate-spin h-4 w-4 text-accent" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                 正在获取 logcat 日志...
             </div>
         </div>
-        <div v-else-if="error" class="flex-1 grid place-items-center rounded-lg border border-danger/20 bg-danger/5 text-danger text-sm p-4 text-center">
+        <div v-else-if="error && !entries.length" class="flex-1 grid place-items-center rounded-lg border border-danger/20 bg-danger/5 text-danger text-sm p-4 text-center">
             {{ error }}
         </div>
         <div v-else-if="!displayEntries.length" class="flex-1 grid place-items-center rounded-lg border border-zinc-200 bg-white text-zinc-500 text-sm">

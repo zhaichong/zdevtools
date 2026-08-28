@@ -143,17 +143,26 @@ export function useLogcat() {
     // 状态流 API 绑定
     let cleanupData = null;
     let cleanupError = null;
+    let loadingTimer = null;
 
     function startStream(deviceId, driverType) {
         if (!deviceId) {
             error.value = '缺少 deviceId，无法启动 logcat';
+            loading.value = false;
+            return;
+        }
+        if (!window.electronAPI?.startLogcat) {
+            error.value = 'logcat 接口不可用（需要 Electron 环境）';
+            loading.value = false;
             return;
         }
         
         loading.value = entries.value.length === 0;
+        error.value = '';
 
         if (cleanupData) { cleanupData(); cleanupData = null; }
         if (cleanupError) { cleanupError(); cleanupError = null; }
+        if (loadingTimer) { clearTimeout(loadingTimer); loadingTimer = null; }
 
         let chunkBuffer = '';
 
@@ -215,6 +224,7 @@ export function useLogcat() {
         }
 
         cleanupData = window.electronAPI?.onLogcatChunk?.((chunk) => {
+            if (loadingTimer) { clearTimeout(loadingTimer); loadingTimer = null; }
             if (loading.value) loading.value = false;
             if (paused.value || _hidden.value) return;
             if (!chunk) return;
@@ -232,6 +242,7 @@ export function useLogcat() {
         });
 
         cleanupError = window.electronAPI?.onLogcatError?.((errMsg) => {
+            if (loadingTimer) { clearTimeout(loadingTimer); loadingTimer = null; }
             error.value = `获取 logcat 失败: ${errMsg}`;
             loading.value = false;
         });
@@ -240,7 +251,11 @@ export function useLogcat() {
             if (result?.status === 'error') {
                 error.value = result.message || '启动 logcat 失败';
                 loading.value = false;
+                return;
             }
+            loadingTimer = setTimeout(() => {
+                if (loading.value) loading.value = false;
+            }, 4000);
         }).catch((err) => {
             error.value = `启动 logcat 失败: ${err.message}`;
             loading.value = false;
@@ -248,6 +263,7 @@ export function useLogcat() {
     }
 
     function stopStream(deviceId, driverType) {
+        if (loadingTimer) { clearTimeout(loadingTimer); loadingTimer = null; }
         if (cleanupData) { cleanupData(); cleanupData = null; }
         if (cleanupError) { cleanupError(); cleanupError = null; }
         if (deviceId) {

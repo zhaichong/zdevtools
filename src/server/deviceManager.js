@@ -3,6 +3,7 @@ const adbDriver = require('./drivers/adbDriver.js');
 const hdcDriver = require('./drivers/hdcDriver.js');
 const { FORWARD_PORT_MIN, FORWARD_PORT_MAX } = require('./constants.js');
 const { findFreePort } = require('./portfinder.js');
+const { extractPageTargets, fetchCdpTargetList, fetchCdpVersion } = require('../shared/utils/inspect-target.cjs');
 const TARGET_TIMEOUT_MS = 1000;
 const drivers = [adbDriver, hdcDriver];
 // 只记录本进程成功创建的映射；绝不清理 Android Studio/DevEco 等外部工具的映射。
@@ -59,37 +60,44 @@ const limitCli = asyncLimit(2); // Maximum 2 concurrent CLI tasks for forward/di
 function requestJson(url, timeout = TARGET_TIMEOUT_MS) {
     return new Promise((resolve) => {
         let settled = false;
-        const req = http.get(url, (res) => {
-            let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => {
+        try {
+            const req = http.get(url, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                    if (settled) return;
+                    settled = true;
+                    try {
+                        resolve({ ok: true, statusCode: res.statusCode, data: JSON.parse(data) });
+                    } catch (e) {
+                        resolve({ ok: false, statusCode: res.statusCode, data: [], error: e.message });
+                    }
+                });
+            });
+            req.on('error', error => {
                 if (settled) return;
                 settled = true;
-                try {
-                    resolve({ ok: true, statusCode: res.statusCode, data: JSON.parse(data) });
-                } catch (e) {
-                    resolve({ ok: false, statusCode: res.statusCode, data: [], error: e.message });
-                }
+                resolve({ ok: false, data: [], error: error.message });
             });
-        });
-        req.on('error', error => {
-            if (settled) return;
-            settled = true;
-            resolve({ ok: false, data: [], error: error.message });
-        });
-        req.setTimeout(timeout, () => {
+            req.setTimeout(timeout, () => {
+                if (!settled) {
+                    settled = true;
+                    resolve({ ok: false, data: [], error: 'timeout' });
+                }
+                req.destroy();
+            });
+        } catch (e) {
             if (!settled) {
                 settled = true;
-                resolve({ ok: false, data: [], error: 'timeout' });
+                resolve({ ok: false, data: [], error: e.message });
             }
-            req.destroy();
-        });
+        }
     });
 }
 
 function getProcessHint(socket) {
     if (socket === 'webview_devtools_remote') return 'system-webview';
-    const pidMatch = socket.match(/(?:webview_)?devtools_external_(\d+)/);
+    const pidMatch = socket.match(/(?:.*_)?devtools_(?:remote|external)_(\d+)/);
     if (pidMatch) return `pid:${pidMatch[1]}`;
     return socket.replace(/^@/, '');
 }
@@ -199,26 +207,23 @@ async function processDevice(driver, baseDevice, portMap, preDiscoveredSockets) 
             return processInfo;
         }
 
-        const targetResult = await requestJson(`http://127.0.0.1:${portInfo.port}/json/list`);
+        const targetResult = await fetchCdpTargetList(requestJson, portInfo.port);
         if (!targetResult.ok) {
             // 如果读取失败，大概率是僵尸 socket 导致的无响应或拒绝连接
             processInfo.diagnostics.push(`Socket ${socket} unresponsive (${targetResult.error || targetResult.statusCode}). Process might be dead.`);
         } else {
-            processInfo.targets = (targetResult.data || [])
-                .filter(target => Boolean(target && target.id && (['page', 'webview', 'other'].includes(target.type) || target.webSocketDebuggerUrl)))
-                .map(target => ({
-                    id: target.id,
-                    type: target.type || 'page',
-                    title: target.title || target.url || `WebView (${target.id.slice(0, 8)})`,
-                    url: target.url || '',
-                    description: target.description || '',
-                    faviconUrl: target.faviconUrl || '',
-                    devtoolsFrontendUrl: target.devtoolsFrontendUrl || '',
-                    webSocketDebuggerUrl: target.webSocketDebuggerUrl || '',
-                    localPort: portInfo.port,
-                    deviceId: device.id,
-                    processName: socket
-                }));
+            processInfo.targets = extractPageTargets(targetResult.data, device.id, portInfo.port, socket);
+            if (processInfo.targets.length === 0) {
+                const versionData = await fetchCdpVersion(requestJson, portInfo.port).catch(() => null);
+                const pkg = versionData?.['Android-Package'] || versionData?.Browser;
+                if (pkg) {
+                    processInfo.packageName = versionData['Android-Package'];
+                    processInfo.browser = versionData.Browser;
+                    processInfo.diagnostics.push(`已连接到应用 ${pkg}，但当前无打开的 Web 页面（可能处于原生启动页或页面未加载）。`);
+                } else {
+                    processInfo.diagnostics.push(`已建立调试连接，但未发现活跃的 Web 页面。`);
+                }
+            }
         }
         return processInfo;
     }));
@@ -236,13 +241,20 @@ async function getDeviceTargets(driverType = 'all') {
             getDeviceTargets('adb'),
             getDeviceTargets('hdc')
         ]);
+        const allDevices = [...(adbResult.devices || []), ...(hdcResult.devices || [])];
+        const rawMessages = [...(adbResult.diagnostics?.messages || []), ...(hdcResult.diagnostics?.messages || [])];
+        
+        let filteredMessages = rawMessages;
+        if (allDevices.length > 0) {
+            filteredMessages = rawMessages.filter(m => !/No devices detected/i.test(m.message));
+        }
+
         const diagnostics = {
-            adbAvailable: adbResult.diagnostics.adbAvailable,
-            hdcAvailable: hdcResult.diagnostics.hdcAvailable,
-            messages: [...(adbResult.diagnostics.messages || []), ...(hdcResult.diagnostics.messages || [])]
+            adbAvailable: adbResult.diagnostics?.adbAvailable,
+            hdcAvailable: hdcResult.diagnostics?.hdcAvailable,
+            messages: filteredMessages
         };
-        const devices = [...(adbResult.devices || []), ...(hdcResult.devices || [])];
-        return { status: 'success', diagnostics, devices };
+        return { status: 'success', diagnostics, devices: allDevices };
     }
 
     if (discoveryLock.has(driverType)) {
@@ -415,10 +427,22 @@ async function _doGetDeviceTargets(driverType = 'adb') {
     const resultDevices = withTargets.length > 0 ? withTargets : devices;
 
     if (withTargets.length === 0 && devices.length > 0) {
-        diagnostics.messages.push({
-            level: 'warn',
-            message: '已检测到设备，但未发现可调试 WebView。鸿蒙请确认目标页在前台，并已开启 Web 调试（TCP 9222 或 DevEco 映射）。'
-        });
+        const driverLabel = targetDriver.type === 'hdc' ? '鸿蒙 (HDC)' : 'Android (ADB)';
+        const hasProcesses = devices.some(d => d.processes && d.processes.length > 0);
+        if (hasProcesses) {
+            diagnostics.messages.push({
+                level: 'warn',
+                message: `已检测到 ${driverLabel} 设备及调试进程，但当前未发现活跃的 Web 页面。请确认目标页面已在 App 前台加载。`
+            });
+        } else {
+            const tip = targetDriver.type === 'hdc'
+                ? '鸿蒙请确认目标页在前台，并已开启 Web 调试（TCP 9222 或 DevEco 映射）。'
+                : '请确认手机上的目标应用（App）已处于前台运行，且在代码中开启了 WebView 调试支持（WebView.setWebContentsDebuggingEnabled(true)）。';
+            diagnostics.messages.push({
+                level: 'warn',
+                message: `已检测到 ${driverLabel} 设备，但未发现可调试 WebView。${tip}`
+            });
+        }
     }
 
     console.log(`[DeviceManager] getDeviceTargets completed in ${Date.now() - startTime}ms for ${resultDevices.length} device(s) (${withTargets.length} with targets)`);

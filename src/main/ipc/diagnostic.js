@@ -6,7 +6,7 @@ const { redact } = require('../../shared/utils/redact-rules.cjs');
 
 const DIAGNOSTIC_MAX_EVENTS_PER_APPEND = 5000;  // 鍗曟 append 鏈€澶?5000 鏉′簨浠?
 const DIAGNOSTIC_MAX_FILE_BYTES = 50 * 1024 * 1024;  // JSONL 鏂囦欢鏈€澶?50MB
-const SENSITIVE_FIELD_RE = /(?:access_)?token|password|client_secret|api_?key|secret|private_?key|authorization|cookie|session|patient|login/i;
+const SENSITIVE_FIELD_RE = /(?:access_)?token|password|client_secret|api_?key|secret|private_?key|^auth$|authorization|cookie|session|patient|login/i;
 
 function sanitizeDiagnosticValue(value, key = '') {
     if (SENSITIVE_FIELD_RE.test(key)) return '[REDACTED]';

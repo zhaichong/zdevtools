@@ -28,9 +28,25 @@ function withRetry(fn, { maxRetries = 3, baseDelay = 1000 } = {}) {
 /**
  * 从 /proc/net/unix 输出中解析 devtools_remote socket 名称
  */
+function normalizeAbstractSocket(name) {
+    return String(name || '').replace(/^@+/, '');
+}
+
 function parseDevtoolsSockets(output) {
-    const socketMatches = [...output.matchAll(/@([A-Za-z0-9_.-]*devtools_remote[A-Za-z0-9_.-]*)/g)];
-    return [...new Set(socketMatches.map(match => match[1]))];
+    const socketMatches = [...String(output || '').matchAll(/@([A-Za-z0-9_.-]*devtools_remote[A-Za-z0-9_.-]*)/g)];
+    return [...new Set(socketMatches.map(match => normalizeAbstractSocket(match[1])))];
+}
+
+function sanitizeLogChunk(text) {
+    return redact(text);
+}
+
+const BENIGN_STDERR_RE = /daemon not running|daemon started successfully|waiting for device|beginning of/i;
+
+function sendToSubscribers(streamData, channel, payload) {
+    for (const sub of streamData.subscribers) {
+        if (!sub.isDestroyed()) sub.send(channel, payload);
+    }
 }
 
 /**
@@ -40,87 +56,122 @@ function parseDevtoolsSockets(output) {
  * @param {Function} config.getToolPath - 返回可执行文件路径
  * @param {Function} config.buildArgs - (id) => 命令参数数组
  * @param {string} config.errorLabel - 进程错误标签（如 'Logcat' 或 'Hilog'）
+ * @param {Function} [config.spawnImpl] - 可注入的 spawn，便于测试
  * @returns {{ startLogStream, stopLogStream }}
  */
-function createLogStreamManager({ getToolPath, buildArgs, errorLabel }) {
+function createLogStreamManager({ getToolPath, buildArgs, errorLabel, spawnImpl }) {
     const activeStreams = new Map();
+    const spawn = spawnImpl || require('child_process').spawn;
+
+    function attachChild(id, streamData, child) {
+        streamData.child = child;
+        streamData.sawOutput = false;
+        streamData.stderrText = '';
+        streamData.finished = false;
+        let chunkBuffer = '';
+        let debounceTimer = null;
+
+        function finish(reason) {
+            if (streamData.finished) return;
+            streamData.finished = true;
+            if (reason && !streamData.stoppedByUs) {
+                sendToSubscribers(streamData, 'logcat-error', reason);
+            }
+            activeStreams.delete(id);
+        }
+
+        child.stdout?.on('data', (chunk) => {
+            streamData.sawOutput = true;
+            chunkBuffer += chunk.toString();
+            if (!debounceTimer) {
+                debounceTimer = setTimeout(() => {
+                    let text = chunkBuffer;
+                    chunkBuffer = '';
+                    debounceTimer = null;
+                    if (text) {
+                        sendToSubscribers(streamData, 'logcat-chunk', sanitizeLogChunk(text));
+                    }
+                }, 50);
+            }
+        });
+
+        child.stderr?.on('data', (chunk) => {
+            streamData.stderrText += chunk.toString();
+        });
+
+        child.on('error', (err) => {
+            finish(`${errorLabel} process error: ${err.message}`);
+            streamData.stoppedByUs = true;
+            try { child.kill(); } catch (e) { /* ignore */ }
+        });
+
+        child.on('close', (code) => {
+            if (debounceTimer) {
+                clearTimeout(debounceTimer);
+                debounceTimer = null;
+                if (chunkBuffer) {
+                    sendToSubscribers(streamData, 'logcat-chunk', sanitizeLogChunk(chunkBuffer));
+                    chunkBuffer = '';
+                }
+            }
+            if (streamData.stoppedByUs) {
+                finish(null);
+                return;
+            }
+            const stderr = streamData.stderrText.trim().replace(/\s+/g, ' ').slice(0, 300);
+            const usefulStderr = stderr && !BENIGN_STDERR_RE.test(stderr) ? stderr : '';
+            if (!streamData.sawOutput) {
+                const detail = usefulStderr || stderr || ((code !== 0 && code !== null)
+                    ? `exited with code ${code} and produced no output`
+                    : 'ended without log output. Check device connection and permission.');
+                finish(`${errorLabel}: ${detail}`);
+                return;
+            }
+            if (code !== 0 && code !== null && usefulStderr) {
+                finish(`${errorLabel} exited with code ${code}: ${usefulStderr}`);
+            } else {
+                finish(null);
+            }
+        });
+    }
 
     return {
         startLogStream: async (id, webContents) => {
             if (!id) return { status: 'error', message: 'deviceId is required' };
+            if (!webContents) return { status: 'error', message: 'webContents is required' };
 
             let streamData = activeStreams.get(id);
-
             if (!streamData) {
-                const { spawn } = require('child_process');
-                const args = buildArgs(id);
-                const newChild = spawn(getToolPath(), args, { windowsHide: true });
-
-                streamData = { child: newChild, subscribers: new Set() };
+                streamData = { child: null, subscribers: new Set(), bound: new WeakSet(), stoppedByUs: false };
                 activeStreams.set(id, streamData);
+            }
 
-                let chunkBuffer = '';
-                let debounceTimer = null;
+            streamData.subscribers.add(webContents);
 
-                newChild.stdout.on('data', (chunk) => {
-                    chunkBuffer += chunk.toString();
-                    if (!debounceTimer) {
-                        debounceTimer = setTimeout(() => {
-                            let text = chunkBuffer;
-                            chunkBuffer = '';
-                            debounceTimer = null;
-                            if (text) {
-                                text = redact(text);
-                                for (const sub of streamData.subscribers) {
-                                    if (!sub.isDestroyed()) sub.send('logcat-chunk', text);
-                                }
-                            }
-                        }, 50);
+            if (!streamData.bound.has(webContents)) {
+                streamData.bound.add(webContents);
+                webContents.once('destroyed', () => {
+                    const current = activeStreams.get(id);
+                    if (!current) return;
+                    current.subscribers.delete(webContents);
+                    if (current.subscribers.size === 0) {
+                        current.stoppedByUs = true;
+                        try { current.child?.kill(); } catch (e) { /* ignore */ }
+                        activeStreams.delete(id);
                     }
-                });
-
-                newChild.stderr.on('data', (chunk) => {
-                    const message = chunk.toString().trim();
-                    if (message) {
-                        for (const sub of streamData.subscribers) {
-                            if (!sub.isDestroyed()) sub.send('logcat-error', message);
-                        }
-                    }
-                });
-
-                newChild.on('error', (err) => {
-                    for (const sub of streamData.subscribers) {
-                        if (!sub.isDestroyed()) sub.send('logcat-error', `${errorLabel} process error: ${err.message}`);
-                    }
-                    activeStreams.delete(id);
-                });
-
-                newChild.on('close', (code) => {
-                    if (code !== 0 && code !== null) {
-                        for (const sub of streamData.subscribers) {
-                            if (!sub.isDestroyed()) sub.send('logcat-error', `${errorLabel} process exited with code ${code}`);
-                        }
-                    }
-                    activeStreams.delete(id);
                 });
             }
 
-            // 加入订阅者
-            streamData.subscribers.add(webContents);
-
-            // 监听销毁事件，自动解除订阅
-            const cleanup = () => {
-                if (streamData) {
-                    streamData.subscribers.delete(webContents);
-                    if (streamData.subscribers.size === 0) {
-                        streamData.child.kill();
-                        activeStreams.delete(id);
-                        streamData = null;
-                    }
+            if (!streamData.child) {
+                let child;
+                try {
+                    child = spawn(getToolPath(), buildArgs(id), { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+                } catch (err) {
+                    activeStreams.delete(id);
+                    return { status: 'error', message: `${errorLabel} spawn failed: ${err.message}` };
                 }
-            };
-            webContents.once('destroyed', cleanup);
-            webContents.once('did-navigate', cleanup);
+                attachChild(id, streamData, child);
+            }
 
             return { status: 'success' };
         },
@@ -130,7 +181,8 @@ function createLogStreamManager({ getToolPath, buildArgs, errorLabel }) {
             if (streamData && webContents) {
                 streamData.subscribers.delete(webContents);
                 if (streamData.subscribers.size === 0) {
-                    streamData.child.kill();
+                    streamData.stoppedByUs = true;
+                    try { streamData.child?.kill(); } catch (e) { /* ignore */ }
                     activeStreams.delete(id);
                 }
             }
@@ -140,12 +192,13 @@ function createLogStreamManager({ getToolPath, buildArgs, errorLabel }) {
          * 杀死所有活跃的日志子进程（teardown 时调用，防止孤儿进程）
          */
         killAll() {
-            for (const [id, streamData] of activeStreams) {
-                try { streamData.child.kill(); } catch (e) { /* ignore */ }
+            for (const [, streamData] of activeStreams) {
+                streamData.stoppedByUs = true;
+                try { streamData.child?.kill(); } catch (e) { /* ignore */ }
             }
             activeStreams.clear();
         }
     };
 }
 
-module.exports = { withRetry, parseDevtoolsSockets, createLogStreamManager };
+module.exports = { withRetry, parseDevtoolsSockets, normalizeAbstractSocket, sanitizeLogChunk, createLogStreamManager };

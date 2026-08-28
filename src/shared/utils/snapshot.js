@@ -1,6 +1,5 @@
 import { BRIDGE_METHODS } from '../constants.js';
-import redactRules from './redact-rules.cjs';
-const buildRedactSource = redactRules.buildRedactSource || redactRules.default?.buildRedactSource || (() => '');
+import { buildRedactSource } from './redact-source.js';
 
 /**
  * 生成运行时快照表达式（通过 CDP Runtime.evaluate 注入页面执行）
@@ -105,8 +104,8 @@ export function runtimeSnapshotExpression({ storageKeys = [], globalFlags = [] }
             try {
                 snapshot = {
                     href: typeof location !== 'undefined' ? redact(location.href || '') : '',
-                    title: typeof document !== 'undefined' ? document.title : '',
-                    hash: typeof location !== 'undefined' ? location.hash : '',
+                    title: typeof document !== 'undefined' ? redact(document.title || '') : '',
+                    hash: typeof location !== 'undefined' ? redact(location.hash || '') : '',
                     pathname: typeof location !== 'undefined' ? location.pathname : '',
                     protocol: typeof location !== 'undefined' ? location.protocol : '',
                     readyState: typeof document !== 'undefined' ? document.readyState : '',

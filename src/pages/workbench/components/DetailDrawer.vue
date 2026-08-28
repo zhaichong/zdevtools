@@ -2,6 +2,7 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { formatTime } from '@/shared/utils/format.js';
+import { partitionCauses, repairEntryFor, REPAIR_STATUS_LABEL } from '@/shared/utils/repair-loop.mjs';
 import CauseDetail from './CauseDetail.vue';
 
 const sidebarWidth = ref(288);
@@ -34,11 +35,33 @@ function stopDrag() {
 const props = defineProps({
     cause: { type: Object, default: null },
     causes: { type: Array, default: () => [] },
+    repairState: { type: Object, default: null },
+    repairLoop: { type: Array, default: () => [] },
     onEvaluate: { type: Function, default: null }
 });
-defineEmits(['refresh', 'copy-cause', 'select-cause']);
+defineEmits(['refresh', 'copy-cause', 'select-cause', 'start-repair', 'verify-repair']);
 
-const topCause = computed(() => props.causes[0] || null);
+const groupedCauses = computed(() => partitionCauses(props.causes, props.repairLoop));
+const listedCauses = computed(() => groupedCauses.value.ordered);
+const pendingCount = computed(() => groupedCauses.value.pending.length);
+const verifiedCount = computed(() => groupedCauses.value.verified.length);
+const topCause = computed(() => groupedCauses.value.pending[0] || groupedCauses.value.ordered[0] || null);
+
+function entryFor(cause) {
+    return repairEntryFor(props.repairLoop, cause?.id);
+}
+
+function statusLabel(cause) {
+    return REPAIR_STATUS_LABEL[entryFor(cause)?.status] || '';
+}
+
+function statusClass(cause) {
+    const status = entryFor(cause)?.status;
+    if (status === 'verified') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+    if (status === 'failed') return 'border-orange-200 bg-orange-50 text-orange-700';
+    if (status === 'verifying' || status === 'repairing') return 'border-zinc-200 bg-zinc-50 text-zinc-600';
+    return '';
+}
 
 function priorityClass(priority) {
     const p = (priority || 'info').toLowerCase();
@@ -59,7 +82,10 @@ function priorityClass(priority) {
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-violet-600"><path d="M2 12h4l3-9 5 18 3-9h5"/></svg>
                         智能诊断
                     </strong>
-                    <span class="text-[10px] text-zinc-400 font-mono mt-0.5">{{ causes.length }} 个根因线索</span>
+                    <span class="text-[10px] text-zinc-400 font-mono mt-0.5">
+                        {{ pendingCount }} 个待处理
+                        <template v-if="verifiedCount"> · {{ verifiedCount }} 个已验证</template>
+                    </span>
                 </div>
                 <button class="px-2.5 py-1.5 text-xs font-semibold rounded border border-zinc-200 text-zinc-650 bg-white hover:bg-zinc-50 hover:text-zinc-950 transition-colors cursor-pointer outline-none flex items-center gap-1.5 shadow-3xs" type="button" @click="$emit('refresh')">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
@@ -76,13 +102,14 @@ function priorityClass(priority) {
 
             <div v-else class="flex-1 overflow-y-auto p-3 flex flex-col gap-2 custom-scrollbar">
                 <button
-                    v-for="item in causes"
+                    v-for="item in listedCauses"
                     :key="item.id"
                     class="flex flex-col text-left p-3 rounded-lg border transition-all relative overflow-hidden group outline-none cursor-pointer"
                     :class="[
                         cause?.id === item.id 
                             ? 'bg-white border-violet-400 shadow-sm ring-1 ring-violet-400/25' 
-                            : 'bg-zinc-50/50 border-zinc-150 hover:bg-white hover:border-zinc-300'
+                            : 'bg-zinc-50/50 border-zinc-150 hover:bg-white hover:border-zinc-300',
+                        entryFor(item)?.status === 'verified' ? 'opacity-70' : ''
                     ]"
                     type="button"
                     @click="$emit('select-cause', item.id)"
@@ -92,6 +119,9 @@ function priorityClass(priority) {
                     <div class="flex items-center gap-2 mb-1.5 pl-1.5">
                         <span class="px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest uppercase border" :class="priorityClass(item.priority)">
                             {{ item.priority || 'INFO' }}
+                        </span>
+                        <span v-if="statusLabel(item)" class="px-1.5 py-0.5 rounded text-[9px] font-semibold border" :class="statusClass(item)">
+                            {{ statusLabel(item) }}
                         </span>
                         <span class="text-[10px] text-zinc-400 font-mono flex-1 text-right">{{ formatTime(item.lastSeen) }}</span>
                     </div>
@@ -134,7 +164,14 @@ function priorityClass(priority) {
             </header>
 
             <section class="flex-1 overflow-auto p-6 custom-scrollbar relative">
-                <CauseDetail v-if="cause" :cause="cause" :on-evaluate="onEvaluate" />
+                <CauseDetail
+                    v-if="cause"
+                    :cause="cause"
+                    :repair-state="repairState"
+                    :on-evaluate="onEvaluate"
+                    @start-repair="$emit('start-repair')"
+                    @verify-repair="$emit('verify-repair')"
+                />
                 <div v-else class="absolute inset-0 flex flex-col items-center justify-center text-zinc-450 select-none">
                     <div class="w-14 h-14 rounded-xl border border-dashed border-zinc-250 bg-white flex items-center justify-center mb-4">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-zinc-450"><path d="M2 12h4l3-9 5 18 3-9h5"/></svg>

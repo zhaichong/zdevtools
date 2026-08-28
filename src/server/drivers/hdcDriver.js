@@ -3,8 +3,9 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const net = require('net');
-const { withRetry, parseDevtoolsSockets, createLogStreamManager } = require('./baseDriver.js');
+const { withRetry, parseDevtoolsSockets, normalizeAbstractSocket, createLogStreamManager } = require('./baseDriver.js');
 const { FORWARD_PORT_MIN, FORWARD_PORT_MAX } = require('../constants.js');
+const { extractPageTargets, fetchCdpTargetList } = require('../../shared/utils/inspect-target.cjs');
 
 const HDC_TIMEOUT_MS = 6000;
 const HDC_TCP_PROBE_PORTS = [9222, 9223, 9224, 9225, 9226];
@@ -60,13 +61,15 @@ function parseDevices(output) {
  */
 function parseForwards(output) {
     return (output || '').split(/\r?\n/).reduce((items, rawLine) => {
-        // 去掉 hdc 可能包在规则两侧的单引号，以及尾部 [Forward] 标记
+        // hdc 1.3+ wraps rules in quotes and tags them [Forward]; [Empty] means no mapping.
         const line = rawLine
+            .replace(/\[Forward\]/gi, '')
             .replace(/^\s*'/, '')
-            .replace(/'\s*(?:\[Forward\])?\s*$/i, '')
-            .replace(/\s*\[Forward\]\s*$/i, '')
+            .replace(/'\s*$/i, '')
             .trim();
-        if (!line) return items;
+        if (!line || /\[Empty\]/i.test(rawLine) || /^\[?Empty\]?$/i.test(line) || /^Forwardport\s+list/i.test(line)) {
+            return items;
+        }
 
         // 设备 ID 不能是 tcp:/localabstract: 前缀本身（避免 'tcp:9222 tcp:9222' 误解析）
         const possibleIdMatch = line.match(/^([A-Za-z0-9_.:-]+)\s+tcp:/i);
@@ -78,7 +81,7 @@ function parseForwards(output) {
         const abstractMatch = line.match(/tcp:(\d+)\s+localabstract:(\S+)/i);
         if (abstractMatch) {
             const port = Number.parseInt(abstractMatch[1], 10);
-            const socket = abstractMatch[2];
+            const socket = normalizeAbstractSocket(abstractMatch[2]);
             if (!Number.isNaN(port) && socket) {
                 items.push({ id, localPort: port, socket, kind: 'abstract' });
             }
@@ -113,31 +116,38 @@ function shouldProbeExistingTcpPort(deviceId, port, forwards, claimedPorts, { al
 function requestJson(url, timeout = 1000) {
     return new Promise((resolve) => {
         let settled = false;
-        const req = http.get(url, (res) => {
-            let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => {
+        try {
+            const req = http.get(url, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                    if (settled) return;
+                    settled = true;
+                    try {
+                        resolve({ ok: true, data: JSON.parse(data) });
+                    } catch (e) {
+                        resolve({ ok: false, data: [] });
+                    }
+                });
+            });
+            req.on('error', () => {
                 if (settled) return;
                 settled = true;
-                try {
-                    resolve({ ok: true, data: JSON.parse(data) });
-                } catch (e) {
+                resolve({ ok: false, data: [] });
+            });
+            req.setTimeout(timeout, () => {
+                if (!settled) {
+                    settled = true;
                     resolve({ ok: false, data: [] });
                 }
+                req.destroy();
             });
-        });
-        req.on('error', () => {
-            if (settled) return;
-            settled = true;
-            resolve({ ok: false, data: [] });
-        });
-        req.setTimeout(timeout, () => {
+        } catch (e) {
             if (!settled) {
                 settled = true;
                 resolve({ ok: false, data: [] });
             }
-            req.destroy();
-        });
+        }
     });
 }
 
@@ -171,28 +181,10 @@ async function findFreeLocalPort(preferred, usedPorts) {
     return null;
 }
 
-function extractPageTargets(list, deviceId, localPort, processName) {
-    return (list || [])
-        .filter(t => Boolean(t && t.id && (['page', 'webview', 'other'].includes(t.type) || t.webSocketDebuggerUrl)))
-        .map(t => ({
-            id: t.id,
-            type: t.type || 'page',
-            title: t.title || t.url || `WebView (${t.id.slice(0, 8)})`,
-            url: t.url || '',
-            description: t.description || '',
-            faviconUrl: t.faviconUrl || '',
-            devtoolsFrontendUrl: t.devtoolsFrontendUrl || '',
-            webSocketDebuggerUrl: t.webSocketDebuggerUrl || '',
-            localPort,
-            deviceId,
-            processName
-        }));
-}
-
 // 日志流管理器（共享订阅者模式）
 const logStream = createLogStreamManager({
     getToolPath: getHdcPath,
-    buildArgs: (id) => ['-t', id, 'hilog'],
+    buildArgs: (id) => ['-t', id, 'shell', 'hilog'],
     errorLabel: 'Hilog'
 });
 
@@ -250,7 +242,7 @@ async function probeManualForwards(deviceId, options = {}) {
             allowUnowned: options.allowUnownedExisting
         })) return;
         try {
-            const result = await requestJson(`http://127.0.0.1:${port}/json/list`);
+            const result = await fetchCdpTargetList(requestJson, port);
             if (result.ok && result.data?.length) {
                 const targets = extractPageTargets(result.data, deviceId, port, `hdc-fport-${port}`);
                 if (targets.length > 0) {
@@ -288,7 +280,7 @@ async function probeManualForwards(deviceId, options = {}) {
                 allowUnowned: options.allowUnownedExisting
             })) continue;
             try {
-                const result = await requestJson(`http://127.0.0.1:${existing.localPort}/json/list`);
+                const result = await fetchCdpTargetList(requestJson, existing.localPort);
                 if (result.ok && result.data?.length) {
                     const targets = extractPageTargets(
                         result.data, deviceId, existing.localPort, `hdc-fport-${existing.localPort}`
@@ -317,7 +309,7 @@ async function probeManualForwards(deviceId, options = {}) {
 
         // 部分 hdc 在规则已存在时返回非 0；仍尝试探测
         try {
-            const result = await requestJson(`http://127.0.0.1:${localPort}/json/list`);
+            const result = await fetchCdpTargetList(requestJson, localPort);
             if (result.ok && result.data?.length) {
                 const targets = extractPageTargets(result.data, deviceId, localPort, `hdc-fport-${localPort}`);
                 if (targets.length > 0) {
@@ -343,6 +335,7 @@ module.exports = {
     name: 'HarmonyOS HDC',
     parseForwards,
     shouldProbeExistingTcpPort,
+    extractPageTargets,
 
     checkAvailability: async () => {
         const result = await runHdcWithRetry(['-v']); // HDC version check is safer than list forwards

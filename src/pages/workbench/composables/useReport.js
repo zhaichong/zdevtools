@@ -1,5 +1,6 @@
-import { redact } from '@/shared/utils/redact.js';
-import { formatTime } from '@/shared/utils/format.js';
+import { redact } from '../../../shared/utils/redact.js';
+import { formatTime } from '../../../shared/utils/format.js';
+import { toPlainValue } from '../../../shared/utils/diagnostic-run.mjs';
 
 const TYPE_LABELS = {
     network: '接口', js: 'JS', vue: 'Vue', resource: '资源',
@@ -16,23 +17,40 @@ function splitSteps(text) {
     return parts.length ? parts : [String(text || '')];
 }
 
+function publicTarget(config) {
+    if (!config || typeof config !== 'object') return {};
+    const { proxyToken, ...rest } = config;
+    if (typeof rest.url === 'string') rest.url = redact(rest.url);
+    return rest;
+}
+
+function redactPageUrls(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') return snapshot || null;
+    if (typeof snapshot.href === 'string') snapshot.href = redact(snapshot.href);
+    if (typeof snapshot.hash === 'string') snapshot.hash = redact(snapshot.hash);
+    return snapshot;
+}
+
 /**
  * 报告构建 composable
  */
 export function useReport() {
 
-    function buildReport({ config, profile, snapshot, events, causes, breadcrumbs, sourceStats, logcat }) {
-        return {
+    function buildReport({ config, profile, snapshot, events, causes, breadcrumbs, sourceStats, logcat, diagnosticRunId }) {
+        const report = toPlainValue({
             createdAt: new Date().toISOString(),
-            target: { ...(config || {}) },
+            target: publicTarget(config),
             profile: profile ? { ...profile } : null,
             snapshot,
             events,
             causes,
             breadcrumbs,
             sourceMaps: { uploaded: sourceStats?.uploaded || 0, matched: sourceStats?.matched || 0 },
-            logcat
-        };
+            logcat,
+            diagnosticRunId: diagnosticRunId || ''
+        });
+        report.snapshot = redactPageUrls(report.snapshot);
+        return report;
     }
 
     function fallbackTitle(phase) {
@@ -70,9 +88,9 @@ export function useReport() {
             related: [],
             stack: []
         };
-        return {
+        return toPlainValue({
             createdAt: new Date().toISOString(),
-            target: { ...(config || {}) },
+            target: publicTarget(config),
             profile: profile ? { ...profile } : null,
             snapshot: null,
             events: [],
@@ -80,26 +98,33 @@ export function useReport() {
             breadcrumbs: [],
             sourceMaps: { uploaded: 0, matched: 0 },
             logcat: []
-        };
+        });
     }
 
     function buildMarkdown(report) {
         if (!report) return '';
-        const related = relatedBreadcrumbs(report.causes[0] || { lastSeen: Date.now() }, report.breadcrumbs);
+        const causes = Array.isArray(report.causes) ? report.causes : [];
+        const breadcrumbs = Array.isArray(report.breadcrumbs) ? report.breadcrumbs : [];
+        const related = relatedBreadcrumbs(causes[0] || { lastSeen: Date.now() }, breadcrumbs);
+        const uploaded = report.sourceMaps?.uploaded ?? 0;
+        const matched = report.sourceMaps?.matched ?? 0;
+        const projectLabel = report.profile?.label || '通用 Web 应用';
+        const pageUrl = redact(report.snapshot?.href || report.target?.url || '-');
+
         return [
             '# ztools 根因报告',
             '',
-            `- 项目: ${report.profile.label}`,
-            `- 页面: ${report.snapshot?.href || report.target?.url}`,
-            `- SourceMap: 上传 ${report.sourceMaps.uploaded} 个，匹配 ${report.sourceMaps.matched} 个根因`,
+            `- 项目: ${projectLabel}`,
+            `- 页面: ${pageUrl}`,
+            `- SourceMap: 上传 ${uploaded} 个，匹配 ${matched} 个根因`,
             '',
             '## 根因',
-            ...(report.causes.length
-                ? report.causes.map(cause => {
-                    const src = cause.source?.mode === 'source-map'
+            ...(causes.length
+                ? causes.map(cause => {
+                    const src = cause?.source?.mode === 'source-map'
                         ? `${cause.source.source}:${cause.source.line}:${cause.source.column}`
-                        : cause.source?.reason || '未匹配源码';
-                    return `- ${cause.priority} ${cause.title}: ${redact(cause.summary)} | ${redact(cause.next)} | ${src}`;
+                        : cause?.source?.reason || '未匹配源码';
+                    return `- ${cause?.priority || 'P1'} ${cause?.title || '未知问题'}: ${redact(cause?.summary || '')} | ${redact(cause?.next || '')} | ${src}`;
                 })
                 : ['- 无']),
             '',
@@ -115,15 +140,17 @@ export function useReport() {
 
     function buildCauseText(cause, report) {
         if (!cause) return buildMarkdown(report);
+        const projectLabel = report?.profile?.label || '通用 Web 应用';
+        const pageUrl = redact(report?.snapshot?.href || report?.target?.url || '-');
         return [
-            `项目：${report?.profile?.label || '-'}`,
-            `页面：${report?.snapshot?.href || report?.target?.url}`,
-            `根因：${cause.priority} ${cause.title}`,
-            `原因：${redact(cause.summary)}`,
+            `项目：${projectLabel}`,
+            `页面：${pageUrl}`,
+            `根因：${cause.priority || 'P1'} ${cause.title || '-'}`,
+            `原因：${redact(cause.summary || '')}`,
             `触发：${cause.trigger || '-'}`,
             `源码：${cause.source?.mode === 'source-map' ? `${cause.source.source}:${cause.source.line}:${cause.source.column}` : cause.source?.reason || '未匹配'}`,
-            `方向：${cause.owner}`,
-            `下一步：${redact(cause.next)}`
+            `方向：${cause.owner || '-'}`,
+            `下一步：${redact(cause.next || '')}`
         ].join('\n');
     }
 

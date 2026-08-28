@@ -9,11 +9,13 @@ import { useSourceMap } from './useSourceMap.js';
 import { useReport } from './useReport.js';
 import { useLogcat } from './useLogcat.js';
 import { useDiagnosticRun } from './useDiagnosticRun.js';
+import { startRepair, verifyRepair } from '@/shared/utils/repair-loop.mjs';
 
 export function useWorkbenchSession(config) {
     const statusText = ref('连接中');
     const statusType = ref('busy');
     const report = ref(null);
+    const repairLoop = ref([]);
     const snapshot = ref(null);
     const probe = reactive({ breadcrumbs: [], errors: [], network: [] });
     const profile = ref(identifyProject(config.url));
@@ -35,7 +37,7 @@ export function useWorkbenchSession(config) {
     let pollInFlight = false;
     let collectInFlight = false;
     let visibilityHandler = null;
-    let currentPanel = 'diagnosis'; // 当前激活的面板，用于域按需启用
+    let currentPanel = 'devtools'; // 当前激活的面板，用于域按需启用
 
     // 跟踪 collect() 中注册的 CDP 事件监听器，防止重复注册导致泄漏
     let rrwebBindingHandler = null;
@@ -58,9 +60,15 @@ export function useWorkbenchSession(config) {
         rrwebBindingHandler = null;
         disposeProbe();
 
-        cdpClient.close();
+        await cdpClient.close();
+        if (currentPanel === 'devtools') return false;
         await cdpClient.connect();
+        if (currentPanel === 'devtools') {
+            await cdpClient.close();
+            return false;
+        }
         await cdpClient.enable();
+        return true;
     }
 
     async function setupRrwebBindings() {
@@ -92,11 +100,14 @@ export function useWorkbenchSession(config) {
         ];
     }
 
-    function renderReport(triggerSelectedCauseIdUpdate) {
+    function renderReport(triggerSelectedCauseIdUpdate, preserveFallbackCauses = false) {
         const rawEvents = allRawEvents();
         const events = dedupeEvents(rawEvents.map(normalizeEventForCause));
         const bc = buildBreadcrumbs(probe.breadcrumbs, events);
         const causesList = buildRootCauses(rawEvents, snapshot.value, config.url, profile.value?.id, bc);
+        if (!causesList.length && preserveFallbackCauses) {
+            causesList.push(...(report.value?.causes || []).filter(cause => /^diagnostic:/.test(cause.id || '')));
+        }
         applySourceToCauses(causesList);
         report.value = buildReportObj({
             config: { ...config },
@@ -106,6 +117,7 @@ export function useWorkbenchSession(config) {
             logcat: logcatManager.entries.value.map(e => e.raw),
             diagnosticRunId: diagnosticRun.runId.value
         });
+        report.value.repairLoop = repairLoop.value.map(entry => ({ ...entry }));
         
         if (triggerSelectedCauseIdUpdate) {
             triggerSelectedCauseIdUpdate(causesList);
@@ -117,13 +129,19 @@ export function useWorkbenchSession(config) {
     }
 
     async function resumeSessionCollection() {
-        await reconnectCdp();
+        const attached = await reconnectCdp();
+        if (!attached || currentPanel === 'devtools') return;
         await setupRrwebBindings();
         await injectProbe();
         setupAutoReinject(() => {
             setStatus('探针已重注入', 'busy');
             setTimeout(() => setStatus('监听中', ''), 1500);
         });
+        if (currentPanel === 'devtools') {
+            await cleanupTarget();
+            await cdpClient.close();
+            return;
+        }
         if (!pollTimer) {
             pollTimer = setInterval(doPoll, 1800);
         }
@@ -131,7 +149,7 @@ export function useWorkbenchSession(config) {
     }
 
     async function collect({ reconnect }, triggerSelectedCauseIdUpdate) {
-        if (collectInFlight) return; // 防止并发 collect 导致状态交错
+        if (collectInFlight) return false; // 防止并发 collect 导致状态交错
         collectInFlight = true;
         let phase = 'CDP 连接';
         setStatus('采集中', 'busy');
@@ -154,6 +172,11 @@ export function useWorkbenchSession(config) {
                     setTimeout(() => setStatus('监听中', ''), 1500);
                 });
             }
+            if (currentPanel === 'devtools') {
+                await cleanupTarget();
+                await cdpClient.close();
+                return true;
+            }
             await delay(700);
             phase = '读取探针数据';
             try {
@@ -173,20 +196,23 @@ export function useWorkbenchSession(config) {
             phase = '生成诊断报告';
             renderReport(triggerSelectedCauseIdUpdate);
             setStatus('监听中', '');
+            return true;
         } catch (error) {
             setStatus('连接异常', 'error');
             report.value = fallbackReport(config, profile.value, error, phase);
             report.value.logcat = logcatManager.entries.value.map(e => e.raw);
+            report.value.repairLoop = repairLoop.value.map(entry => ({ ...entry }));
             diagnosticRun.persistReport(report.value).catch(persistError => {
                 console.warn('[diagnostic] persist failed:', persistError);
             });
+            return false;
         } finally {
             collectInFlight = false;
         }
     }
 
     async function doPoll() {
-        if (!cdpClient.connected.value || pollInFlight) return;
+        if (currentPanel === 'devtools' || !cdpClient.connected.value || pollInFlight || collectInFlight) return;
         pollInFlight = true;
         try {
             const probeData = await pollProbe();
@@ -200,7 +226,37 @@ export function useWorkbenchSession(config) {
 
     function onRefresh(triggerSelectedCauseIdUpdate) {
         relatedCache.clear();
-        collect({ reconnect: false }, triggerSelectedCauseIdUpdate);
+        return collect({ reconnect: false }, triggerSelectedCauseIdUpdate);
+    }
+
+    function beginRepair(cause) {
+        if (!cause?.id) return null;
+        const previous = repairLoop.value.find(entry => entry.causeId === cause.id) || null;
+        const entry = startRepair(cause, previous);
+        repairLoop.value = [...repairLoop.value.filter(item => item.causeId !== cause.id), entry];
+        renderReport(undefined, true);
+        return entry;
+    }
+
+    async function verifyCause(causeId, triggerSelectedCauseIdUpdate) {
+        const entry = repairLoop.value.find(item => item.causeId === causeId);
+        if (!entry?.baseline || collectInFlight) return null;
+
+        relatedCache.clear();
+        repairLoop.value = [...repairLoop.value.filter(item => item.causeId !== causeId), { ...entry, status: 'verifying' }];
+        renderReport(undefined, true);
+        const collected = await collect({ reconnect: false }, triggerSelectedCauseIdUpdate);
+        const latest = repairLoop.value.find(item => item.causeId === causeId) || entry;
+        if (!collected) {
+            repairLoop.value = [...repairLoop.value.filter(item => item.causeId !== causeId), { ...latest, status: 'repairing' }];
+            renderReport(undefined, true);
+            return null;
+        }
+
+        const lastVerification = verifyRepair(latest.baseline, report.value?.causes, Date.now());
+        repairLoop.value = [...repairLoop.value.filter(item => item.causeId !== causeId), { ...latest, status: lastVerification.status, lastVerification }];
+        renderReport();
+        return lastVerification;
     }
 
     /**
@@ -208,22 +264,12 @@ export function useWorkbenchSession(config) {
      * 仅在连接就绪后执行，不影响初次 collect
      */
     async function onPanelChange(panelName) {
-        const prevPanel = currentPanel;
         currentPanel = panelName;
         if (panelName === 'devtools') {
-            // 切入 Chrome DevTools 面板：暂时断开后台 cdpClient，避免与 iframe 内的 DevTools 互相抢占踢下线
             if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
             await cleanupTarget();
-            cdpClient.close();
+            await cdpClient.close();
             return;
-        }
-        if (prevPanel === 'devtools') {
-            // 从 DevTools 切回：重新连接 cdpClient 并成套恢复全部采集能力
-            try {
-                await resumeSessionCollection();
-            } catch (e) {
-                console.warn('[workbench] resume collection after devtools panel exit failed:', e);
-            }
         }
         if (!cdpClient.connected.value) return;
         try {
@@ -234,8 +280,6 @@ export function useWorkbenchSession(config) {
     }
 
     onMounted(async () => {
-        pollTimer = setInterval(doPoll, 1800);
-        
         visibilityHandler = () => {
             if (document.hidden) {
                 clearInterval(pollTimer);
@@ -245,7 +289,7 @@ export function useWorkbenchSession(config) {
                 cdpClient.disableAllDomains().catch(() => {});
             } else {
                 resumeAllStreams();
-                // 恢复当前面板所需的 CDP Domain
+                if (currentPanel === 'devtools' || !cdpClient.connected.value) return;
                 cdpClient.enableDomainsForPanel(currentPanel).catch(() => {});
                 if (!pollTimer) {
                     doPoll();
@@ -270,7 +314,8 @@ export function useWorkbenchSession(config) {
 
     return {
         statusText, statusType, report, snapshot, profile, probe,
-        cdpClient, logcatManager, diagnosticRun, sourceStats,
-        collect, onRefresh, onPanelChange, renderReport, setStatus, handleSourceMapFiles
+        cdpClient, logcatManager, diagnosticRun, sourceStats, repairLoop,
+        collect, onRefresh, onPanelChange, renderReport, setStatus, handleSourceMapFiles,
+        beginRepair, verifyCause
     };
 }

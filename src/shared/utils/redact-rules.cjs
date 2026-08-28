@@ -4,7 +4,7 @@
  */
 
 // 扩展了包含 api_key, secret, private_key, session, cookie 等常见敏感词
-const SENSITIVE_KEY_RE = /((?:access_)?token|password|client_secret|api_?key|secret|private_?key|session|cookie|Authorization)(["'\s:=]+)(?!\s*Bearer\b)([^"',\s&:=]+)(?![=:\w])/gi;
+const SENSITIVE_KEY_RE = /((?:access_)?token|password|client_secret|api_?key|secret|private_?key|session|cookie|auth(?:orization)?)(["'\s:=]+)(?!\s*Bearer\b)([^"',\s&:=]+)(?![=:\w])/gi;
 const BEARER_RE = /(Bearer\s+)[A-Za-z0-9._-]+/gi;
 
 /**

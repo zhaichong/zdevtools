@@ -44,6 +44,7 @@ export function useDevices() {
 
         let devices = 0;
         let targets = 0;
+        const procDiags = [];
 
         if (d.devices?.length) {
             devices = d.devices.length;
@@ -60,18 +61,30 @@ export function useDevices() {
                         }
                     }
                     if (proc.diagnostics?.length) {
-                        diags.push({ message: `${proc.processName}: ${proc.diagnostics.join('; ')}`, isError: true });
+                        const isErr = proc.diagnostics.some(msg => /unresponsive|failed|refused|dead|error|crash/i.test(msg));
+                        procDiags.push({ message: `${proc.processName}: ${proc.diagnostics.join('; ')}`, isError: isErr });
                     }
                 }
             }
         }
 
+        // 避免顶层通用提示与具体的进程提示重复
+        if (procDiags.length > 0) {
+            const hasSpecificProcHint = procDiags.some(p => /已连接到应用|未打开.*Web.*页面/i.test(p.message));
+            if (hasSpecificProcHint) {
+                // 移除顶层泛化的「未发现活跃的 Web 页面」提示
+                const filtered = diags.filter(item => !/未发现活跃的 Web 页面/i.test(item.message));
+                diags.length = 0;
+                diags.push(...filtered);
+            }
+            diags.push(...procDiags);
+        }
+
         if (!d.devices?.length) {
             diags.push({ message: '未检测到设备。请确认 USB 已连接、已开启调试，并允许电脑调试。', isError: false });
         } else if (!targets) {
-            // 后端已可能写入同类提示；这里补一条前端可读说明，避免只靠标题区分
-            const hasBackendHint = diags.some(item => /未发现可调试 WebView|No debuggable/i.test(item.message));
-            if (!hasBackendHint) {
+            const hasHint = diags.some(item => /未发现可调试 WebView|未发现活跃的 Web 页面|No debuggable|已连接到应用/i.test(item.message));
+            if (!hasHint) {
                 diags.push({
                     message: '已检测到设备，但未发现可调试 WebView。请确认目标应用在前台且已开启 WebView/HDC 调试。',
                     isError: false

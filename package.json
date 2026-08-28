@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node tests/diagnostic-run.test.mjs && node tests/redact.test.mjs && node tests/hdc-discovery.test.mjs && node tests/proxy.test.mjs && node tests/cdp-client.test.mjs && node tests/diagnostic-persistence.test.mjs && node tests/rrweb-queue.test.mjs",
+    "test": "node tests/diagnostic-run.test.mjs && node tests/redact.test.mjs && node tests/hdc-discovery.test.mjs && node tests/adb-discovery.test.mjs && node tests/inspect-target.test.mjs && node tests/proxy.test.mjs && node tests/cdp-client.test.mjs && node tests/diagnostic-persistence.test.mjs && node tests/rrweb-queue.test.mjs && node tests/highlight.test.mjs && node tests/use-report.test.mjs && node tests/sourcemap-resolve.test.mjs && node tests/probe-redact.test.mjs && node tests/snapshot-redact.test.mjs && node tests/root-cause.test.mjs && node tests/repair-loop.test.mjs && node tests/repair-loop-persistence.test.mjs && node tests/log-stream.test.mjs && node tests/workbench-ia.test.mjs",
     "start": "electron .",
     "pack": "vite build && electron-builder --dir",
     "dist": "vite build && electron-builder",

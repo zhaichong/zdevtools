@@ -42,6 +42,8 @@ globalThis.location = { protocol: 'http:', host: '127.0.0.1:8999' };
     const client = useCdpClient(9222, 'test-target-1', { proxyToken: 'test-capability' });
     const connectPromise = client.connect();
     const wsInstance = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    assert.match(wsInstance.url, /\/ws-proxy\/9222\/devtools\/page\/test-target-1\?/);
+    assert.doesNotMatch(wsInstance.url, /\/devtools\/browser/);
     wsInstance.readyState = MockWebSocket.OPEN;
     wsInstance.onopen();
 
@@ -115,6 +117,70 @@ globalThis.location = { protocol: 'http:', host: '127.0.0.1:8999' };
     assert.ok(MockWebSocket.instances.length >= before + 2, 'Timed-out connection must create a retry attempt');
     client.close();
     await pending;
+}
+
+// Test 5: listed target websocket URL (HarmonyOS numeric id) is the attach path
+{
+    const client = useCdpClient(9222, '2', {
+        proxyToken: 'test-capability',
+        wsDebuggerPath: 'ws://127.0.0.1:9222/devtools/page/2'
+    });
+    client.connect().catch(() => {});
+    const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    assert.match(ws.url, /\/ws-proxy\/9222\/devtools\/page\/2\?ztools_token=test-capability/);
+    assert.doesNotMatch(ws.url, /\/ws:\/\//);
+    assert.doesNotMatch(ws.url, /127\.0\.0\.1:9222/);
+    assert.doesNotMatch(ws.url, /\/devtools\/browser/);
+    client.close();
+}
+
+// Test 6: a browser-level debugger path must not be forwarded; fall back to /devtools/page/<id>
+{
+    const client = useCdpClient(9222, 'page-1', {
+        proxyToken: 'test-capability',
+        wsDebuggerPath: '/devtools/browser/abc-123'
+    });
+    client.connect().catch(() => {});
+    const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    assert.match(ws.url, /\/devtools\/page\/page-1\?/);
+    assert.doesNotMatch(ws.url, /\/devtools\/browser/);
+    client.close();
+}
+
+// Encoded traversal in the listed websocket URL must not become the attach path
+{
+    const client = useCdpClient(9222, 'page-2', {
+        proxyToken: 'test-capability',
+        wsDebuggerPath: '/devtools/page/%2e%2e%2fbrowser'
+    });
+    client.connect().catch(() => {});
+    const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    assert.match(ws.url, /\/devtools\/page\/page-2\?/);
+    assert.doesNotMatch(ws.url, /%2e|browser/i);
+    client.close();
+}
+
+// Test 7: close() waits for the socket to finish closing, and a later 1006 must not reconnect
+{
+    const client = useCdpClient(9222, 'close-wait-target', { proxyToken: 'test-capability' });
+    const pending = client.connect();
+    const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    ws.readyState = MockWebSocket.OPEN;
+    ws.onopen();
+    await pending;
+    const socketsAfterOpen = MockWebSocket.instances.length;
+
+    await client.close();
+    assert.strictEqual(client.connected.value, false);
+    assert.strictEqual(ws.readyState, MockWebSocket.CLOSED);
+
+    ws.onclose({ code: 1006, reason: 'kicked' });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.strictEqual(
+        MockWebSocket.instances.length,
+        socketsAfterOpen,
+        'close() must suppress reconnect after an abnormal follow-up onclose'
+    );
 }
 
 console.log('cdp-client lifecycle tests passed');

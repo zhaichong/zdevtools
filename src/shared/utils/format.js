@@ -7,9 +7,11 @@
  */
 export function sourceHint(url, lineNumber = 0, columnNumber = 0) {
     if (!url) return '';
-    if (url.startsWith('webpack://')) return `${url}:${Number(lineNumber) + 1}:${Number(columnNumber) + 1}`;
-    const chunk = url.split('/').pop();
-    return `${chunk || url}:${Number(lineNumber) + 1}:${Number(columnNumber) + 1}`;
+    const lineNum = Number.isFinite(Number(lineNumber)) ? Number(lineNumber) + 1 : 1;
+    const colNum = Number.isFinite(Number(columnNumber)) ? Number(columnNumber) + 1 : 1;
+    if (url.startsWith('webpack://')) return `${url}:${lineNum}:${colNum}`;
+    const chunk = url.split('?')[0].split('#')[0].split('/').pop();
+    return `${chunk || url}:${lineNum}:${colNum}`;
 }
 
 /**
@@ -19,7 +21,9 @@ export function sourceHint(url, lineNumber = 0, columnNumber = 0) {
  */
 export function formatTime(value) {
     if (!value) return '-';
-    return new Date(value).toLocaleTimeString('zh-CN', { hour12: false });
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '-';
+    return date.toLocaleTimeString('zh-CN', { hour12: false });
 }
 
 /**

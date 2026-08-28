@@ -1,6 +1,7 @@
 import { ref, shallowRef } from 'vue';
 import { normalizeCdpEvent } from '../utils/cdp-events.js';
 import { RingBuffer } from '../utils/ring-buffer.js';
+import { resolvePageDebuggerPath } from '../utils/inspect-target.cjs';
 
 /**
  * 统一的 CDP WebSocket 客户端 composable
@@ -175,12 +176,14 @@ export function useCdpClient(port, targetId, options = {}) {
             let settled = false;
             const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
             const cleanTargetId = String(targetId || '').trim();
-            const targetPath = wsDebuggerPath
-                ? (wsDebuggerPath.startsWith('/') ? wsDebuggerPath : `/${wsDebuggerPath}`)
-                : (cleanTargetId.startsWith('/') ? cleanTargetId : `/devtools/page/${cleanTargetId}`);
+            const targetPath = resolvePageDebuggerPath({ wsDebuggerPath, targetId: cleanTargetId });
             const token = typeof proxyToken === 'function' ? proxyToken() : proxyToken;
             if (!token) {
                 reject(new Error('CDP proxy capability is unavailable'));
+                return;
+            }
+            if (!targetPath) {
+                reject(new Error('CDP page debugger path is unavailable'));
                 return;
             }
             const separator = targetPath.includes('?') ? '&' : '?';
@@ -406,6 +409,32 @@ export function useCdpClient(port, targetId, options = {}) {
         return result?.result?.value;
     }
 
+    const CLOSE_WAIT_MS = 1500;
+
+    function waitForSocketClosed(socket) {
+        if (!socket || socket.readyState === WebSocket.CLOSED) return Promise.resolve();
+        return new Promise(resolve => {
+            let settled = false;
+            const finish = () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                resolve();
+            };
+            const timer = setTimeout(finish, CLOSE_WAIT_MS);
+            const previousOnClose = socket.onclose;
+            socket.onclose = event => {
+                try { previousOnClose?.(event); } catch (e) {}
+                finish();
+            };
+            try {
+                if (socket.readyState <= WebSocket.OPEN) socket.close(1000, 'Client closed');
+            } catch (e) {
+                finish();
+            }
+        });
+    }
+
     function close() {
         closed = true;
         currentEpoch++; // 递增世代，使所有未完成的连接尝试失效
@@ -415,11 +444,7 @@ export function useCdpClient(port, targetId, options = {}) {
         }
         // 取消待触发的重连定时器
         if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-        if (activeAttempt) {
-            clearTimeout(activeAttempt.timer);
-            try { activeAttempt.socket.close(1000, 'Client closed'); } catch (e) {}
-            activeAttempt = null;
-        }
+        if (activeAttempt) clearTimeout(activeAttempt.timer);
         // 取消 debounce sync 定时器
         if (syncTimer) { clearTimeout(syncTimer); syncTimer = null; }
         // 清除所有 pending 请求并显式 reject，防止调用方（如 pollProbe）挂起
@@ -439,13 +464,13 @@ export function useCdpClient(port, targetId, options = {}) {
         }
         enabledDomains.clear();
         connected.value = false;
-        // 关闭 WebSocket
-        if (ws) {
-            try {
-                if (ws.readyState <= WebSocket.OPEN) ws.close(1000, 'Client closed');
-            } catch (e) {}
-            ws = null;
-        }
+
+        const sockets = [];
+        if (activeAttempt?.socket) sockets.push(activeAttempt.socket);
+        if (ws && ws !== activeAttempt?.socket) sockets.push(ws);
+        activeAttempt = null;
+        ws = null;
+        return Promise.all(sockets.map(waitForSocketClosed)).then(() => undefined);
     }
 
     /** 强制同步环形缓冲区到 events ref（外部 poll 前调用以确保获取最新数据） */
